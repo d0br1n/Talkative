@@ -62,43 +62,106 @@
     return grid.map((r) => r.join('')).join('\n');
   }
 
+  // The listening animation. WCAG 2.2.2: each run lasts at most 5 seconds,
+  // then the static mark comes back. A run plays only while the mark is on
+  // screen (IntersectionObserver; without it, only the 5-second cap
+  // applies). Scrolling the mark back into view starts a new run. Hiding the
+  // tab pauses the run; showing it resumes what is left. Reduced motion ends
+  // the run at once and restores the static mark.
   function initMark() {
     var el = document.getElementById('hero-mark');
     if (!el || !window.setInterval) return;
+    var STATIC = el.textContent; // saved before the first frame
+    var MAX_MS = 5000;
+    var STEP_MS = 90;
     var mq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    var hasIO = typeof window.IntersectionObserver === 'function';
+    var onScreen = !hasIO;
+    var runOpen = false; // a run has started and still has time left
+    var used = 0;        // ms of the current run already played
+    var resumedAt = 0;
     var timer = null;
     var t = 12;
 
-    function tickOnce() {
-      el.textContent = frame(t);
-      t += 1;
+    function now() { return Date.now(); }
+    function reduced() { return !!(mq && mq.matches); }
+    function setListening(on) {
+      if (el.classList) el.classList[on ? 'add' : 'remove']('is-listening');
     }
-    function stop() {
+    function clearTimer() {
       if (timer !== null) {
         clearInterval(timer);
         timer = null;
       }
     }
-    function start() {
-      if (timer !== null) return;
-      if (document.hidden || (mq && mq.matches)) return;
-      tickOnce();
-      timer = setInterval(tickOnce, 90);
+    function endRun() {
+      clearTimer();
+      runOpen = false;
+      used = 0;
+      setListening(false);
+      el.textContent = STATIC;
     }
-    function onMotion() {
-      if (mq && mq.matches) stop();
-      else start();
+    function tick() {
+      // End on the tick whose successor would land past 5 seconds, so the
+      // last animated frame never outlives the cap.
+      if (used + (now() - resumedAt) + STEP_MS > MAX_MS) {
+        endRun();
+        return;
+      }
+      el.textContent = frame(t);
+      t += 1;
+    }
+    function play() {
+      if (timer !== null || !runOpen) return;
+      if (!onScreen || document.hidden || reduced()) return;
+      resumedAt = now();
+      setListening(true);
+      tick();
+      if (runOpen) timer = setInterval(tick, STEP_MS);
+    }
+    function pause() {
+      if (timer === null) return;
+      clearTimer();
+      used += now() - resumedAt;
+      setListening(false);
+    }
+    function beginRun() {
+      if (reduced()) return;
+      if (!runOpen) {
+        runOpen = true;
+        used = 0;
+      }
+      play();
     }
 
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) stop();
-      else start();
+      if (document.hidden) pause();
+      else play();
     });
     if (mq) {
+      var onMotion = function () {
+        if (reduced()) endRun();
+        else if (onScreen) beginRun();
+      };
       if (mq.addEventListener) mq.addEventListener('change', onMotion);
       else if (mq.addListener) mq.addListener(onMotion);
     }
-    start();
+    if (hasIO) {
+      new window.IntersectionObserver(function (entries) {
+        var entry = entries[entries.length - 1];
+        if (entry.isIntersecting) {
+          if (!onScreen) {
+            onScreen = true;
+            beginRun();
+          }
+        } else if (onScreen) {
+          onScreen = false;
+          endRun();
+        }
+      }).observe(el);
+    } else {
+      beginRun();
+    }
   }
 
   function initToggle() {
@@ -134,10 +197,21 @@
     if (!form) return;
     var status = form.querySelector('[role="status"]');
     // TODO(owner): notify endpoint
+    var button = form.querySelector('button[type="submit"]');
+    var pending = null;
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      if (status) status.textContent = 'Not wired up yet. Watch the repository for news.';
+      if (!status) return;
+      // Clear, then set on a later tick, so a repeat submit is announced again.
+      status.textContent = '';
+      if (pending !== null) clearTimeout(pending);
+      pending = setTimeout(function () {
+        pending = null;
+        status.textContent = 'Not wired up yet. Check back here for news.';
+      }, 50);
     });
+    // The button ships disabled so the no-JS form cannot submit at all.
+    if (button) button.disabled = false;
   }
 
   if (typeof document !== 'undefined') {

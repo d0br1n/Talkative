@@ -14,7 +14,7 @@ Then open `http://localhost:8000`.
 
 - `index.html`: the page.
 - `styles.css`: the terminal look, light and dark.
-- `mark.js`: the animated listening mark and the placeholder form handler.
+- `mark.js`: the listening animation (at most 5 seconds per run), the diagram toggle and the placeholder form handler.
 - `fonts/JetBrainsMono-Regular.woff2`, `fonts/JetBrainsMono-Bold.woff2`: self-hosted font files.
 - `fonts/OFL.txt`: the font licence.
 - `README.md`: this file.
@@ -25,12 +25,12 @@ Each `TODO(owner)` in the source, and what it needs.
 
 | Where | What it is | What's needed |
 |---|---|---|
-| `site/index.html:38` | Hero photo slot | Optional. A photo, or leave the animated mark. |
-| `site/index.html:57` | Notify form endpoint | Which service, and its URL. The form sends nothing now. |
-| `site/index.html:64` | Repository URL, for the hero "read the design" button | The public repository URL, or the design document URL. |
-| `site/index.html:214` | Repository URL, for the open source "read the design" button | The public repository URL, or the design document URL. |
-| `site/index.html:251` | Repository URL, footer "Repository" link | The public repository URL. |
-| `site/mark.js:136` | Notify endpoint in the form script | The same endpoint as above. |
+| `site/index.html:40` | Hero photo slot | Optional. A photo, or leave the animated mark. |
+| `site/index.html:59` | Notify form endpoint | Which service, and its URL. The form sends nothing now. When you wire it up, give the email input a `name` and update the guard test, which currently forbids named fields. |
+| `site/index.html:66` | Repository URL, for the hero "read the design" button | The public repository URL, or the design document URL. |
+| `site/index.html:215` | Repository URL, for the open source "read the design" button | The public repository URL, or the design document URL. |
+| `site/index.html:252` | Repository URL, footer "Repository" link | The public repository URL. |
+| `site/mark.js:199` | Notify endpoint in the form script | The same endpoint as above. |
 
 All three links point to `#` until the URL is set: both "read the design" buttons and the footer "Repository" link.
 
@@ -53,9 +53,19 @@ From brief section 10. Please answer before the page goes live.
 - **Wordmark.** The primary lockup's wordmark looks closest to wordmark option A (Archivo Black). Please confirm.
 - **Full-terminal look.** The whole page is a terminal, as you chose.
 - **Vignette.** Lowered from the branding's 0.6 to 0.2, so text keeps WCAG AA contrast.
-- **Phosphor flicker.** Runs in dark mode only, as in the branding.
-- **The form.** It does not send anything yet. The page says so.
-- **Privacy lists.** "Stays on your hardware" says the agent host runs on your computer. "What can leave" says Claude Code talks to Claude as normal.
+- **Phosphor flicker.** Runs in dark mode only, as in the branding, and only while the mark animates (see "Listening animation").
+- **The form.** It does not send anything yet, and the note under it says it is a placeholder. The email input has no `name`, so even a forced submit carries no address. The button ships `disabled` and `mark.js` enables it, so without JavaScript the button stays off. With JavaScript, pressing it shows: "Not wired up yet. Check back here for news." It does not point at the repository, because the repository is private. Please check the wording.
+- **Privacy section.** Rewritten so it claims no more than is true. Please check every line. The intro: "Talkative is private by default, and the agent host runs on your computer. Here is exactly what that means." The lists:
+  - "Stays on your hardware, by default": "Your voice audio, unless you switch on a cloud speech engine." and "Speech recognition and speech output."
+  - "What can leave, and when": "Traffic between your phone and your machines travels over your private Tailscale network.", "The text of what you say goes to Claude through Claude Code, with your normal login, as any Claude Code prompt does." and "Your audio, to a cloud speech engine, only if you explicitly switch one on."
+- **Host operating system.** The page says "your computer" throughout and names no operating system. The brief rules out Windows and macOS hosts for the first version. Many iPhone owners will read "your computer" as a Mac. Please decide whether to say so. A suggested FAQ item:
+  - "Which computers can run it?" Answer: yours to fill in. This is not in the page yet, and the guard tests ban "mac", "macOS" and "Windows" as words, so adjust them if your answer names one.
+- **Transcript wording.** The illustrative exchange is: "How's the auth refactor going?" / "Two of three jobs are done. The third is running in the background, so I'm free to talk." / "Which files did the second job touch?" / "Mostly the session code. In short, it—" / "Never mind. Just tell me when the third one finishes." / "The third job just finished and the tests pass. I'd like to push the branch. Tap Approve on your phone." / "(taps Approve)". The dash on the agent's line shows you cutting it off. Please check it sounds like you.
+- **"In development." in the hero.** A short line under the subhead, so the present-tense copy does not read as "available now".
+- **"iPhone only" in the status line.** The FAQ status line reads "Status: in development. Not released yet. iPhone only." Please confirm you want "iPhone only" stated there as well as in the Android answer.
+- **Brand name on phones.** Below 600px the ASCII wordmark would shrink to a 3px font and read as texture, so phones show the name "Talkative" as plain bold text in the accent colour, with the glow in dark mode. From 600px up the ASCII wordmark shows. Only one of the two is ever displayed, so screen readers hear the name once.
+- **Listening animation.** It animates for at most 5 seconds each time the mark comes into view, then settles on the static mark (WCAG 2.2.2). The dark-mode flicker runs only during those 5 seconds. Hiding the tab pauses it. Reduced motion turns it off. If you want a longer loop, it needs a visible pause button.
+- **Headings.** The "## " before each section heading is drawn by CSS and hidden from screen readers, so they read just "privacy", not "hash hash privacy".
 - **No latency figures.** There are no latency numbers anywhere, so there is no latency TODO.
 
 ## Accessibility notes

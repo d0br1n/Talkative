@@ -27,6 +27,7 @@
    @8&amp;#%*      .=#@#@@@&amp;%@#*&amp;8%8  @@@@@%  #%**@%   8&amp;&amp;@#&amp;    %%%#&amp;&amp;8@&amp;@@@8&amp;*:   **##*&amp;@8**  8#8&amp;#@      *@#&amp;%+%+       ~#%*&amp;%8@@@*&amp;+
   `@@8#&amp;*        -=@*#88+=8&amp;@%@+' 8+&amp;*&amp;+  &amp;@#8&amp;-   =%*@+##    +8#&amp;8@@=#@@8&amp;#     -@@&amp;&amp;&amp;%#:  *#%&amp;@*      `#&amp;@##8          #&amp;#*&amp;8*@##-</pre>
   </div>
+  <p class="wordmark-text">Talkative</p>
 </header>
 
 <main id="main">
@@ -34,6 +35,7 @@
 <section class="hero" aria-labelledby="hero-title">
   <h1 id="hero-title">Talk to your coding agent like a colleague — from anywhere, on hardware you own.</h1>
   <p class="subhead">Hold a real spoken conversation with Claude Code from your iPhone. Phone in your pocket, screen locked, earbuds in. Interrupt it whenever you like.</p>
+  <p class="status">In development.</p>
 
   <!-- TODO(owner): hero photo — optional photo slot -->
 
@@ -56,8 +58,8 @@
     <form data-notify-form action="#" novalidate>
       <!-- TODO(owner): notify endpoint -->
       <label for="notify-email">Email, to follow development</label>
-      <input id="notify-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
-      <button type="submit">[ follow development ]</button>
+      <input id="notify-email" type="email" autocomplete="email" placeholder="you@example.com" required>
+      <button type="submit" disabled>[ follow development ]</button>
       <p class="form-note">This form is a placeholder. It does not send anything yet.</p>
       <p role="status"></p>
     </form>
@@ -67,18 +69,18 @@
 </section>
 
 <section aria-labelledby="problem-title">
-  <h2 id="problem-title">## the problem</h2>
+  <h2 id="problem-title">the problem</h2>
   <p>Your agent works for twenty minutes at a time.</p>
   <p>You shouldn't have to sit and watch it.</p>
 </section>
 
 <section aria-labelledby="conversation-title">
-  <h2 id="conversation-title">## how a conversation feels</h2>
+  <h2 id="conversation-title">how a conversation feels</h2>
   <p class="label">Illustrative. A scripted example, not a recording.</p>
   <ol class="transcript">
     <li><span class="prompt">you ›</span> How's the auth refactor going?</li>
     <li><span class="prompt">talkative ›</span> Two of three jobs are done. The third is running in the background, so I'm free to talk.</li>
-    <li><span class="prompt">you ›</span> Which files did the second job touch—</li>
+    <li><span class="prompt">you ›</span> Which files did the second job touch?</li>
     <li><span class="prompt">talkative ›</span> Mostly the session code. In short, it—</li>
     <li><span class="prompt">you ›</span> Never mind. Just tell me when the third one finishes.</li>
     <li><span class="prompt">talkative ›</span> The third job just finished and the tests pass. I'd like to push the branch. Tap Approve on your phone.</li>
@@ -87,7 +89,7 @@
 </section>
 
 <section aria-labelledby="points-title">
-  <h2 id="points-title">## what you get</h2>
+  <h2 id="points-title">what you get</h2>
   <div class="cards">
     <article class="card">
       <h3>A conversation, not dictation.</h3>
@@ -117,7 +119,7 @@
 </section>
 
 <section aria-labelledby="how-title">
-  <h2 id="how-title">## how it works</h2>
+  <h2 id="how-title">how it works</h2>
   <p>Your phone talks to the voice side. Only text goes on to your agent.</p>
   <div class="toggle" role="group" aria-label="Choose a setup">
     <button type="button" data-diagram="split" aria-controls="diagram-split" aria-pressed="true" hidden>[ split setup ]</button>
@@ -192,31 +194,30 @@
 </section>
 
 <section aria-labelledby="privacy-title">
-  <h2 id="privacy-title">## privacy</h2>
-  <p>Talkative is private by default. Here is exactly what that means.</p>
-  <h3>Stays on your hardware</h3>
+  <h2 id="privacy-title">privacy</h2>
+  <p>Talkative is private by default, and the agent host runs on your computer. Here is exactly what that means.</p>
+  <h3>Stays on your hardware, by default</h3>
   <ul>
-    <li>Your voice audio.</li>
+    <li>Your voice audio, unless you switch on a cloud speech engine.</li>
     <li>Speech recognition and speech output.</li>
-    <li>The agent host runs on your computer.</li>
   </ul>
   <h3>What can leave, and when</h3>
   <ul>
     <li>Traffic between your phone and your machines travels over your private Tailscale network.</li>
-    <li>Claude Code talks to Claude with your normal login, as it does without Talkative.</li>
-    <li>A cloud speech engine, only if you explicitly switch one on.</li>
+    <li>The text of what you say goes to Claude through Claude Code, with your normal login, as any Claude Code prompt does.</li>
+    <li>Your audio, to a cloud speech engine, only if you explicitly switch one on.</li>
   </ul>
 </section>
 
 <section aria-labelledby="oss-title">
-  <h2 id="oss-title">## open source</h2>
+  <h2 id="oss-title">open source</h2>
   <p>Talkative is open source under the MIT licence.</p>
   <!-- TODO(owner): repository URL -->
   <p><a class="button" href="#">[ read the design ]</a></p>
 </section>
 
 <section aria-labelledby="faq-title">
-  <h2 id="faq-title">## status and faq</h2>
+  <h2 id="faq-title">status and faq</h2>
   <p class="status">Status: in development. Not released yet. iPhone only.</p>
   <details>
     <summary>Does it work on Android?</summary>
