@@ -27,6 +27,7 @@ export function runVoice(config: Config): Promise<number> {
     cleanup.add("link server", () => link.stop());
     const pairing = new Pairing({
       bind: v.bind, port: v.pairPort, apiKey: keys.apiKey, apiSecret: keys.apiSecret, livekitUrl: v.livekitUrl, room: v.room,
+      onCode: writeCode,
     });
     cleanup.add("pairing server", () => pairing.stop());
     const mint = async () => {
@@ -53,8 +54,7 @@ export function runVoice(config: Config): Promise<number> {
     });
 
     await link.start();
-    await pairing.start();
-    writeCode(pairing.code);
+    await pairing.start(); // writes the code file through onCode
     await worker.start();
     await room.join();
     console.log(`voice: ready. pairing code: ${pairing.code}`);

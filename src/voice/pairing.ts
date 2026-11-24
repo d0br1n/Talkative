@@ -29,6 +29,8 @@ export interface PairingOptions {
   words?: string[];
   /** Test hook. */
   now?: () => number;
+  /** Called with each new code: at start, and after every successful pair (the service rewrites the code file). */
+  onCode?: (code: string) => void;
 }
 
 /** Hands the phone a long-lived room token in exchange for the three-word code shown on the server. */
@@ -53,15 +55,25 @@ export class Pairing {
 
   async start(): Promise<void> {
     this.stop();
-    const words = this.o.words ?? WORDS;
-    this.code = [0, 1, 2].map(() => words[randomInt(words.length)]).join(" ");
+    this.newCode();
     this.failures = [];
     this.lockedUntil = 0;
     this.server = Bun.serve({
       hostname: this.o.bind,
       port: this.o.port,
+      // a chunked body has no content-length: Bun stops reading it here
+      maxRequestBodySize: MAX_BODY,
       fetch: (req) => this.handle(req),
     });
+  }
+
+  /** A fresh code, never the one before it. */
+  private newCode(): void {
+    const words = this.o.words ?? WORDS;
+    const old = this.code;
+    do this.code = [0, 1, 2].map(() => words[randomInt(words.length)]).join(" ");
+    while (this.code === old);
+    this.o.onCode?.(this.code);
   }
 
   stop(): void {
@@ -94,6 +106,9 @@ export class Pairing {
       return new Response("wrong code", { status: 403 });
     }
     this.failures = [];
+    // one code, one phone: a second pairing needs the code shown after this one
+    this.newCode();
+    console.log("voice: a phone paired; the pairing code changed (`bun src/main.ts code` prints it)");
     const token = new AccessToken(this.o.apiKey, this.o.apiSecret, { identity: "phone", ttl: TOKEN_TTL });
     token.addGrant({
       roomJoin: true, room: this.o.room, canPublish: true, canSubscribe: true, canPublishData: true,

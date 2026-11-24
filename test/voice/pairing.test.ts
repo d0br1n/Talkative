@@ -10,11 +10,14 @@ afterEach(() => {
 });
 
 let clock = 1_000_000;
-const make = (bind = "127.0.0.1") =>
-  (p = new Pairing({
+let written: string[] = [];
+const make = (bind = "127.0.0.1") => {
+  written = [];
+  return (p = new Pairing({
     bind, port: 0, apiKey: "key", apiSecret: "s".repeat(32), livekitUrl: "ws://127.0.0.1:7880", room: "talkative",
-    words: ["alpha", "bravo", "charlie", "delta"], now: () => clock,
+    words: ["alpha", "bravo", "charlie", "delta"], now: () => clock, onCode: (code) => void written.push(code),
   }));
+};
 const post = (code: string) =>
   fetch(`http://127.0.0.1:${p!.port}/pair`, { method: "POST", body: JSON.stringify({ code }), headers: { "content-type": "application/json" } });
 
@@ -35,7 +38,7 @@ test("a right code returns a phone token for the room", async () => {
 test("a wrong code is 403 and a malformed body too", async () => {
   make();
   await p!.start();
-  expect((await post("alpha alpha alpha")).status).toBe(403);
+  expect((await post("echo echo echo")).status).toBe(403);
   const r = await fetch(`http://127.0.0.1:${p!.port}/pair`, { method: "POST", body: "{" });
   expect(r.status).toBe(403);
   expect((await fetch(`http://127.0.0.1:${p!.port}/other`)).status).toBe(404);
@@ -75,4 +78,37 @@ test("a body over 1 KiB is 413", async () => {
   const r = await fetch(`http://127.0.0.1:${p!.port}/pair`, { method: "POST", body: JSON.stringify({ code: "x".repeat(2000) }) });
   expect(r.status).toBe(413);
   expect((await post(p!.code)).status).toBe(200);
+});
+
+test("a large chunked body is refused before it is read", async () => {
+  make();
+  await p!.start();
+  const chunk = new TextEncoder().encode("x".repeat(4096));
+  const CHUNKS = 4096; // 16 MiB, far more than the sockets buffer
+  let sent = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(c) {
+      if (sent++ < CHUNKS) c.enqueue(chunk);
+      else c.close();
+    },
+  });
+  // no content-length: the size is known only by reading
+  const r = await fetch(`http://127.0.0.1:${p!.port}/pair`, { method: "POST", body, duplex: "half" } as RequestInit).catch(() => null);
+  expect(r === null || r.status === 413).toBe(true);
+  expect(sent).toBeLessThan(CHUNKS);
+  expect((await post(p!.code)).status).toBe(200);
+});
+
+test("a successful pair rotates the code and rewrites the code file; the old code no longer pairs", async () => {
+  make();
+  await p!.start();
+  const first = p!.code;
+  expect(written).toEqual([first]);
+  expect((await post(first)).status).toBe(200);
+  const second = p!.code;
+  expect(second).not.toBe(first);
+  expect(written).toEqual([first, second]);
+  expect((await post(first)).status).toBe(403);
+  expect((await post(second)).status).toBe(200);
+  expect(written).toHaveLength(3);
 });
