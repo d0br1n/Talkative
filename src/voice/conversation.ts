@@ -5,6 +5,7 @@ import type { AgentToVoice, VoiceToAgent, Verbosity } from "../shared/link.js";
 import type { FromPhone, ToPhone } from "../shared/phone.js";
 import { matchCommand, type Command } from "./commands.js";
 import { DEFAULT_EAR_SETTINGS, Ear, type EarSettings } from "./ear.js";
+import { HeldLines, type Cuttable } from "./held.js";
 import { LINES, type Line } from "./lines.js";
 import { Mouth, type PhonePort, type Speaker, type Tts } from "./mouth.js";
 import { SentenceCollector } from "./sentences.js";
@@ -40,22 +41,15 @@ export interface VoiceConversationOptions {
 type Approval = Extract<ToPhone, { t: "approval" }>;
 type Phase = "starting" | "ready" | "restarting" | "crashed";
 
-interface Turn {
+interface Turn extends Cuttable {
   origin: "owner" | "agent";
   collector: SentenceCollector;
   /** the next sentence index */
   sentences: number;
-  /** a sentence of it has reached the mouth, so a barge-in cuts it */
-  voiced: boolean;
-  /** a barge-in or a stop cut it: the rest goes to the phone only */
-  silenced: boolean;
 }
 
-interface Held {
-  turnId: string;
-  index: number;
-  text: string;
-}
+/** Sent to the phone when a decision cannot reach the agent. */
+export const DECIDE_NOT_SENT = "Not connected to the agent; your answer wasn't sent.";
 
 /** System lines go to the mouth under this turn id. */
 const VOICE_TURN = "voice";
@@ -70,6 +64,8 @@ export class VoiceConversation {
   private readonly turns = new Map<string, Turn>();
   /** owner turns sent and not ended: the status's `thinking` */
   private readonly ownerTurns = new Set<string>();
+  /** turns a link drop closed here: what the agent still sends for them is ignored until their turnEnd */
+  private readonly closed = new Set<string>();
   private readonly jobs = new Set<string>();
   private sentTurns = 0;
   private linkUp = false;
@@ -80,8 +76,8 @@ export class VoiceConversation {
   private audio = true;
   private mic = true;
   private lines = 0;
-  /** what would start speaking while the owner is mid-utterance, in order */
-  private held: Held[] = [];
+  /** what would start speaking while the owner is mid-utterance waits here */
+  private readonly gate: HeldLines;
   private readonly pending = new Map<string, Approval>();
   private readonly announced = new Set<string>();
   private lastStatus = "";
@@ -105,6 +101,7 @@ export class VoiceConversation {
       onSpeechStart: () => {},
       onBargeIn: () => this.bargeIn(),
     });
+    this.gate = new HeldLines(this.mouth, () => this.ear.inUtterance);
   }
 
   // ---- the room ----
@@ -113,20 +110,31 @@ export class VoiceConversation {
   onFrame(frame48k: Int16Array): void {
     if (!this.mic) return;
     this.ear.push(frame48k);
-    if (this.held.length > 0 && !this.ear.inUtterance) this.release();
+    if (this.gate.waiting && !this.ear.inUtterance) this.gate.release();
   }
 
   private onUtterance(pcm16k: Int16Array): void {
+    // each link catches its own errors, so one bad utterance never stops the ones after it
     this.hearing = this.hearing.then(async () => {
       let text: string;
       try {
         text = (await this.o.stt.transcribe(pcm16k)).trim();
       } catch (e) {
-        this.o.phone.send({ t: "error", text: `transcription failed: ${(e as Error).message}` });
-        return;
+        return this.fail(`transcription failed: ${(e as Error).message}`);
       }
-      if (text) this.heard(text);
+      try {
+        if (text) this.heard(text);
+      } catch (e) {
+        this.fail((e as Error).message);
+      }
     });
+  }
+
+  private fail(text: string): void {
+    console.error(`voice: ${text}`);
+    try {
+      this.o.phone.send({ t: "error", text });
+    } catch {}
   }
 
   /** The voice is talking and the owner talks over it: stop the voice, not the agent. */
@@ -170,7 +178,8 @@ export class VoiceConversation {
 
   private sendTurn(text: string): void {
     const turnId = `o-${this.sentTurns + 1}`;
-    if (!this.linkUp || !this.o.agent.send({ t: "turn", turnId, text, verbosity: this.verbosity })) {
+    const reachable = this.linkUp && this.phase !== "crashed";
+    if (!reachable || !this.o.agent.send({ t: "turn", turnId, text, verbosity: this.verbosity })) {
       this.say(LINES.notConnected);
       return;
     }
@@ -182,7 +191,7 @@ export class VoiceConversation {
   private setAudio(on: boolean): void {
     this.audio = on;
     if (!on) {
-      this.held = [];
+      this.gate.clear();
       this.mouth.stop();
     }
     this.status();
@@ -201,6 +210,7 @@ export class VoiceConversation {
       return;
     }
     // the agent cannot finish what was open, and its jobs went with it as far as we can tell
+    for (const id of [...this.turns.keys(), ...this.ownerTurns]) this.closed.add(id);
     this.turns.clear();
     this.ownerTurns.clear();
     this.jobs.clear();
@@ -210,6 +220,10 @@ export class VoiceConversation {
   }
 
   onAgent(m: AgentToVoice): void {
+    if ("turnId" in m && this.closed.has(m.turnId)) {
+      if (m.t === "turnEnd") this.closed.delete(m.turnId);
+      return;
+    }
     switch (m.t) {
       case "hello":
         return;
@@ -217,7 +231,8 @@ export class VoiceConversation {
         this.agentState(m.state);
         return;
       case "turnStart":
-        this.turns.set(m.turnId, this.newTurn(m.origin));
+        // a stop may have silenced it before its start arrived
+        this.turn(m.turnId).origin = m.origin;
         return;
       case "blockStart":
         this.o.phone.send({ t: "blockStart", turnId: m.turnId, block: m.block });
@@ -304,7 +319,7 @@ export class VoiceConversation {
         this.mic = m.on;
         if (!m.on) {
           this.ear.reset();
-          this.release();
+          this.gate.release();
         }
         return;
       case "audio":
@@ -316,9 +331,18 @@ export class VoiceConversation {
         return;
       }
       case "decide":
-        if (this.pending.has(m.id)) this.o.agent.send({ t: "decide", id: m.id, allow: m.allow });
+        // it stays pending either way: the agent still holds the request
+        if (this.pending.has(m.id) && !this.o.agent.send({ t: "decide", id: m.id, allow: m.allow })) {
+          this.o.phone.send({ t: "error", text: DECIDE_NOT_SENT });
+        }
         return;
     }
+  }
+
+  /** The phone went away: a half-recorded utterance will never end, so drop it and say what waited. */
+  onPhoneGone(): void {
+    this.ear.reset();
+    this.gate.release();
   }
 
   // ---- speaking ----
@@ -346,31 +370,14 @@ export class VoiceConversation {
       this.o.phone.send({ t: "sentence", turnId, index, text: speak });
       if (!this.audio || turn.silenced) continue;
       // a reply nobody asked for never talks over the owner
-      if (turn.origin === "agent" && this.ear.inUtterance) this.held.push({ turnId, index, text: speak });
-      else this.voice({ turnId, index, text: speak });
+      this.gate.say({ turn, turnId, index, text: speak }, turn.origin === "agent");
     }
   }
 
   /** A line in the voice's own words, held like an unprompted reply. */
   private say(line: Line): void {
     if (!this.audio) return;
-    const s = { turnId: VOICE_TURN, index: this.lines++, text: line };
-    if (this.ear.inUtterance) this.held.push(s);
-    else this.voice(s);
-  }
-
-  private voice(s: Held): void {
-    const turn = this.turns.get(s.turnId);
-    if (turn) turn.voiced = true;
-    this.mouth.say(s.turnId, s.index, s.text);
-  }
-
-  /** The owner stopped talking: say what waited for them. */
-  private release(): void {
-    for (const s of this.held.splice(0)) {
-      if (this.turns.get(s.turnId)?.silenced) continue;
-      this.voice(s);
-    }
+    this.gate.say({ turnId: VOICE_TURN, index: this.lines++, text: line }, true);
   }
 
   private silenceVoiced(): void {
@@ -378,8 +385,10 @@ export class VoiceConversation {
   }
 
   private silenceAll(): void {
+    // an owner turn sent and not yet started is silenced too: its start keeps the flag
+    for (const id of this.ownerTurns) this.turn(id);
     for (const turn of this.turns.values()) turn.silenced = true;
-    this.held = [];
+    this.gate.clear();
   }
 
   private status(force = false): void {

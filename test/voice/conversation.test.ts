@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { LINES } from "../../src/voice/lines.js";
 import { Mouth } from "../../src/voice/mouth.js";
 import { FakePhone, FakeSpeaker, FakeTts, rig, settle } from "./harness.js";
@@ -390,5 +390,99 @@ describe("Mouth", () => {
     mouth.say("u", 0, "After the stop.");
     await settle();
     expect(speaker.played.map((p) => tts.textOf(p)).at(-1)).toBe("After the stop.");
+  });
+});
+
+describe("fix round 1", () => {
+  test("a barge-in-cut unprompted reply stays cut after its turnEnd", async () => {
+    const r = rig();
+    r.speaker.auto = false;
+    r.reply("agent-1", "agent", ["The build finished. "], false);
+    await settle();
+    expect(r.spoken()).toEqual(["The build finished."]);
+    r.stt.texts.push("hang on");
+    r.talk(100); // recording open, barge-in not yet
+    r.agentSays({ t: "delta", turnId: "agent-1", block: 0, text: "Three tests failed. " });
+    r.talk(500); // barge-in fires
+    expect(r.speaker.stops).toBe(1);
+    r.agentSays({ t: "turnEnd", turnId: "agent-1", ok: true });
+    r.speaker.auto = true;
+    r.pause();
+    await settle();
+    expect(r.spoken()).toEqual(["The build finished."]);
+  });
+
+  test("a throw while handling one utterance does not stop the next", async () => {
+    const r = rig();
+    const quiet = spyOn(console, "error").mockImplementation(() => {});
+    const send = r.phone.send.bind(r.phone);
+    let thrown = false;
+    r.phone.send = (m) => {
+      if (m.t === "heard" && !thrown) { thrown = true; throw new Error("data channel closed"); }
+      send(m);
+    };
+    await r.utter("first");
+    await r.utter("second");
+    quiet.mockRestore();
+    expect(r.agent.of("turn").map((m) => m.text)).toEqual(["second"]);
+    expect(r.phone.of("error").map((m) => m.text)).toEqual(["data channel closed"]);
+  });
+
+  test("stop silences an owner turn whose turnStart has not arrived yet", async () => {
+    const r = rig();
+    r.conv.onPhone({ t: "said", text: "explain it" });
+    r.conv.onPhone({ t: "said", text: "stop" });
+    r.reply("o-1", "owner", ["This should not be spoken. Nor this."]);
+    await settle();
+    expect(r.spoken()).toEqual([]);
+    expect(r.phone.of("sentence")).toHaveLength(2);
+  });
+
+  test("after a link-only drop, deltas of a locally closed turn are ignored until its turnEnd", async () => {
+    const r = rig();
+    r.conv.onPhone({ t: "said", text: "go on" });
+    r.reply("o-1", "owner", ["Before the drop it is spoken. "], false);
+    r.conv.onAgentConnection(false);
+    r.conv.onAgentConnection(true);
+    const deltas = r.phone.of("delta").length;
+    r.agentSays({ t: "delta", turnId: "o-1", block: 0, text: "After the drop it is not. Nor this one. " });
+    expect(r.phone.last("status")).toMatchObject({ thinking: false });
+    r.agentSays({ t: "turnEnd", turnId: "o-1", ok: true });
+    r.reply("agent-1", "agent", ["A later reply is spoken. "]);
+    await settle();
+    expect(r.phone.of("delta")).toHaveLength(deltas + 1);
+    expect(r.spoken()).toEqual(["Before the drop it is spoken.", LINES.lost, LINES.back, "A later reply is spoken."]);
+  });
+
+  test("a crashed agent gets no turn: the voice says it isn't connected", async () => {
+    const r = rig();
+    r.agentSays({ t: "agent", state: "crashed" });
+    r.conv.onPhone({ t: "said", text: "hello" });
+    await settle();
+    expect(r.agent.of("turn")).toEqual([]);
+    expect(r.spoken()).toEqual([LINES.cantStart, LINES.notConnected]);
+  });
+
+  test("a decide that cannot be sent tells the phone and stays pending", () => {
+    const r = rig();
+    r.agentSays(APPROVAL);
+    r.agent.up = false;
+    r.conv.onPhone({ t: "decide", id: "req-1", allow: true });
+    expect(r.phone.of("error")).toEqual([{ t: "error", text: "Not connected to the agent; your answer wasn't sent." }]);
+    r.phone.got = [];
+    r.conv.onPhone({ t: "hello", protocol: 1 });
+    expect(r.phone.of("approval").map((m) => m.id)).toEqual(["req-1"]);
+  });
+
+  test("onPhoneGone drops the half-recorded utterance and releases held lines", async () => {
+    const r = rig();
+    r.talk(200);
+    r.agentSays(APPROVAL);
+    await settle();
+    expect(r.spoken()).toEqual([]);
+    r.conv.onPhoneGone();
+    await settle();
+    expect(r.spoken()).toEqual([LINES.needApproval]);
+    expect(r.stt.calls).toBe(0);
   });
 });

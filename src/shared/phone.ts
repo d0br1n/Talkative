@@ -9,6 +9,7 @@ export type ToPhone =
   | { t: "blockStart" | "blockEnd"; turnId: string; block: number }
   | { t: "delta"; turnId: string; block: number; text: string }
   | { t: "sentence"; turnId: string; index: number; text: string }
+  /** `turnId: "voice"` marks one of the voice's own system lines, not an agent turn. */
   | { t: "speaking"; turnId: string; index: number }
   | { t: "narration"; text: string }
   | { t: "status"; agent: "ready" | "restarting" | "down"; thinking: boolean; jobs: number; audio: boolean }
