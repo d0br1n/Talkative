@@ -334,3 +334,66 @@ describe("robustness", () => {
     expect(has(m.out, { t: "agent", state: "restarting" })).toBe(true);
   });
 });
+
+describe("final review fixes", () => {
+  test("a failed turn's text reaches turnEnd.error: an unstreamed assistant message, an is_error result, a synthetic error", async () => {
+    const { c, out } = make("error-turn");
+    c.start();
+    await until(() => c.sessionId === "sess-err");
+    c.turn("t1", "hi", "brief");
+    await until(() => has(out, { t: "turnEnd", turnId: "t1" }));
+    c.turn("t2", "again", "brief");
+    await until(() => has(out, { t: "turnEnd", turnId: "t2" }));
+    c.turn("t3", "once more", "brief");
+    await until(() => has(out, { t: "turnEnd", turnId: "t3" }));
+    expect(out.filter((m) => m.t === "turnEnd")).toEqual([
+      { t: "turnEnd", turnId: "t1", ok: false, error: "Invalid API key · Please run /login" },
+      { t: "turnEnd", turnId: "t2", ok: false, error: "Prompt is too long" },
+      { t: "turnEnd", turnId: "t3", ok: false, error: "API Error: 529 Overloaded" },
+    ]);
+  });
+
+  test("a streamed reply's own text is not mistaken for an error", async () => {
+    const { c, out } = make("text-turn");
+    c.start();
+    await until(() => c.sessionId === "sess-1");
+    c.turn("t1", "hi", "brief");
+    await until(() => has(out, { t: "turnEnd" }));
+    expect(out.filter((m) => m.t === "turnEnd")).toEqual([{ t: "turnEnd", turnId: "t1", ok: true }]);
+  });
+
+  test("each crash logs its exit code and stderr tail once", async () => {
+    const lines: string[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => void lines.push(a.join(" "));
+    try {
+      const { c, out } = make("crash-on-start", { sleep: async () => {} });
+      c.start();
+      await until(() => out.filter((m) => m.t === "agent" && m.state === "crashed").length >= 2, 8000);
+      c.stop();
+      const crashes = out.filter((m) => m.t === "agent" && (m.state === "crashed" || m.state === "restarting")).length;
+      const logged = lines.filter((l) => l.includes("claude exited"));
+      expect(logged.length).toBe(crashes);
+      expect(logged[0]).toContain("code 1");
+      expect(logged[0]).toContain("error: login expired");
+    } finally {
+      console.error = orig;
+    }
+  });
+
+  test("agentState is the last agent message emitted, detail included", async () => {
+    let n = 0;
+    // the second crash's backoff never ends: the coordinator stays crashed
+    const { c, out } = make("crash-on-start", { sleep: () => (++n >= 2 ? new Promise<void>(() => {}) : Promise.resolve()) });
+    const quiet = console.error;
+    console.error = () => {};
+    try {
+      expect(c.agentState).toBeNull();
+      c.start();
+      await until(() => has(out, { t: "agent", state: "crashed" }), 8000);
+      expect(c.agentState).toEqual({ t: "agent", state: "crashed", detail: "error: login expired" });
+    } finally {
+      console.error = quiet;
+    }
+  });
+});

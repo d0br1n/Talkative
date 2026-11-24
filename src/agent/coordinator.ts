@@ -9,10 +9,22 @@ const DETAIL_CAP = 4000;
 const SUMMARY_CAP = 120;
 
 type Pending = { msg: Extract<AgentToVoice, { t: "approval" }>; input: Record<string, unknown>; deadline: number };
+type AgentState = Extract<AgentToVoice, { t: "agent" }>;
 
 function oneLine(s: string, cap = SUMMARY_CAP): string {
   const flat = s.replace(/\s+/g, " ").trim();
   return flat.length > cap ? flat.slice(0, cap - 1) + "…" : flat;
+}
+
+/** The last few non-empty lines of a crashed process's stderr, on one line. */
+function stderrLines(stderr: string, lines = 5): string {
+  return oneLine(stderr.split("\n").map((l) => l.trim()).filter(Boolean).slice(-lines).join(" | "), 500);
+}
+
+/** The text parts of an assistant message, joined. */
+function assistantText(message: any): string {
+  const content = Array.isArray(message?.content) ? message.content : [];
+  return content.filter((p: any) => p?.type === "text" && typeof p.text === "string").map((p: any) => p.text).join("").trim();
 }
 
 function summarize(tool: string, input: Record<string, unknown>): string {
@@ -39,6 +51,7 @@ export class Coordinator {
   private readonly tickMs: number;
   private readonly readyAfterMs: number;
   private ticker: ReturnType<typeof setInterval> | null = null;
+  private lastState: AgentState | null = null;
 
   // turn state
   private openTurn: string | null = null;
@@ -47,6 +60,12 @@ export class Coordinator {
   private block = 0;
   private open = new Map<number, { block: number; type: string; name: string; id: string; json: string }>();
   private tools = new Map<string, { name: string; summary: string }>();
+  /** the open turn streamed text of its own */
+  private streamed = false;
+  /** text of the open turn's assistant messages that never streamed (claude's own error lines arrive this way) */
+  private unstreamed = "";
+  /** an assistant message of the open turn was claude's synthetic error */
+  private failed = false;
 
   private pending = new Map<string, Pending>();
   private readonly jobs = new JobTracker();
@@ -75,7 +94,7 @@ export class Coordinator {
     this.readyAfterMs = o.readyAfterMs ?? 3000;
     this.supervisor = new Supervisor({
       start: () => this.launch(),
-      onCrash: (_code, stderr) => this.crashed(stderr),
+      onCrash: (code, stderr) => this.crashed(code, stderr),
       sleep: o.sleep,
       now: o.now,
     });
@@ -85,8 +104,18 @@ export class Coordinator {
     return this.session;
   }
 
+  /** The last `agent` message emitted (null before `start`): re-sent on every link welcome. */
+  get agentState(): AgentState | null {
+    return this.lastState;
+  }
+
+  private setState(state: AgentState["state"], detail?: string): void {
+    this.lastState = { t: "agent", state, ...(detail ? { detail } : {}) };
+    this.emit(this.lastState);
+  }
+
   start(): void {
-    this.emit({ t: "agent", state: "starting" });
+    this.setState("starting");
     this.ticker = setInterval(() => this.tick(), this.tickMs);
     (this.ticker as any).unref?.();
     this.supervisor.run();
@@ -118,7 +147,7 @@ export class Coordinator {
   newConversation(): void {
     this.session = null;
     this.resetState("restarted");
-    this.emit({ t: "agent", state: "restarting" });
+    this.setState("restarting");
     this.supervisor.restart();
   }
 
@@ -126,7 +155,7 @@ export class Coordinator {
     if (model) this.model = model;
     if (effort) this.effort = effort;
     this.resetState("restarted");
-    this.emit({ t: "agent", state: "restarting" });
+    this.setState("restarting");
     this.supervisor.restart();
   }
 
@@ -180,7 +209,7 @@ export class Coordinator {
   private announce(p: ClaudeProcess, ready: { announced: boolean }): void {
     if (ready.announced || this.cur !== p) return;
     ready.announced = true;
-    this.emit({ t: "agent", state: "ready" });
+    this.setState("ready");
   }
 
   private async read(p: ClaudeProcess, ready: { announced: boolean }): Promise<void> {
@@ -201,14 +230,14 @@ export class Coordinator {
     } catch {}
   }
 
-  private crashed(stderr: string): void {
+  private crashed(code: number, stderr: string): void {
     this.cur = null;
+    // the only place claude says why it died; its stderr carries no secrets of ours (never the args or the env)
+    const tail = stderrLines(stderr);
+    console.error(`agent: claude exited with code ${code}${tail ? `: ${tail}` : " and no stderr"}`);
     this.resetState("the agent process exited");
-    if (this.supervisor.failureCount <= 1) this.emit({ t: "agent", state: "restarting" });
-    else {
-      const last = stderr.split("\n").map((l) => l.trim()).filter(Boolean).pop();
-      this.emit({ t: "agent", state: "crashed", ...(last ? { detail: last } : {}) });
-    }
+    if (this.supervisor.failureCount <= 1) this.setState("restarting");
+    else this.setState("crashed", stderrLines(stderr, 1) || undefined);
   }
 
   /** Drop everything tied to the old process: approvals it asked, and the open turn. */
@@ -229,6 +258,9 @@ export class Coordinator {
     this.openTurn = turnId;
     this.block = 0;
     this.open.clear();
+    this.streamed = false;
+    this.unstreamed = "";
+    this.failed = false;
     this.emit({ t: "turnStart", turnId, origin });
   }
 
@@ -255,22 +287,24 @@ export class Coordinator {
       case "stream_event":
         if (ev.parent_tool_use_id) return;
         return this.streamEvent(ev.event ?? {});
-      case "assistant":
-        if (!ev.parent_tool_use_id) this.ensureTurn();
+      case "assistant": {
+        if (ev.parent_tool_use_id) return;
+        this.ensureTurn();
+        // an API or login error comes as a whole message with no stream events
+        const text = assistantText(ev.message);
+        if (text && !this.streamed) this.unstreamed = text;
+        if (ev.error || ev.message?.model === "<synthetic>") this.failed = true;
         return;
+      }
       case "user":
         if (ev.isReplay === true || ev.parent_tool_use_id) return;
         return this.toolResults(ev.message);
       case "result": {
         const turnId = this.openTurn ?? this.queued.shift();
         if (turnId === undefined) return;
-        const ok = ev.is_error !== true;
-        this.emit({
-          t: "turnEnd",
-          turnId,
-          ok,
-          ...(!ok ? { error: oneLine(typeof ev.result === "string" && ev.result ? ev.result : String(ev.subtype ?? "error"), 300) } : {}),
-        });
+        const ok = ev.is_error !== true && !(this.failed && turnId === this.openTurn);
+        const why = (typeof ev.result === "string" && ev.result) || (turnId === this.openTurn && this.unstreamed) || String(ev.subtype ?? "error");
+        this.emit({ t: "turnEnd", turnId, ok, ...(!ok ? { error: oneLine(why, 300) } : {}) });
         this.openTurn = null;
         this.open.clear();
         const next = this.queued.shift();
@@ -304,6 +338,7 @@ export class Coordinator {
       if (!entry || this.openTurn === null) return;
       const d = e.delta ?? {};
       if (d.type === "text_delta" && entry.type === "text" && typeof d.text === "string") {
+        this.streamed = true;
         this.emit({ t: "delta", turnId: this.openTurn, block: entry.block, text: d.text });
       } else if (d.type === "input_json_delta" && typeof d.partial_json === "string") {
         entry.json += d.partial_json;
