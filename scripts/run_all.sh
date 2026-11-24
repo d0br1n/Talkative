@@ -11,13 +11,13 @@ tts=$(uv run python -c "from bench.tts import TTS_ENGINES; print(*TTS_ENGINES)")
 
 for e in $stt; do
   echo "== stt $e"
-  uv run python -m bench.run stt --clips clips/ --engine "$e" --host "$host" --out "results/$host/$e.json" \
-    || echo "!! stt $e exited non-zero; continuing"
+  uv run python -m bench.run guard --kind stt --engine "$e" --host "$host" --out "results/$host/$e.json" -- \
+    uv run python -m bench.run stt --clips clips/ --engine "$e" --host "$host" --out "results/$host/$e.json"
 done
 for e in $tts; do
   echo "== tts $e"
-  uv run python -m bench.run tts --engine "$e" --host "$host" --out "results/$host/$e.json" \
-    || echo "!! tts $e exited non-zero; continuing"
+  uv run python -m bench.run guard --kind tts --engine "$e" --host "$host" --out "results/$host/$e.json" -- \
+    uv run python -m bench.run tts --engine "$e" --host "$host" --out "results/$host/$e.json"
 done
 
 uv run python -m bench.report "results/$host/" > "docs/bench/results-$host.md"

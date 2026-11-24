@@ -14,8 +14,8 @@ def tts_engine(request):
     eng = TTS_ENGINES[request.param]()
     try:
         eng.load()
-    except ModelMissing:
-        pytest.skip(f"{request.param} not downloaded")
+    except (ModelMissing, OSError) as exc:
+        pytest.skip(f"{request.param} unavailable: {exc}")
     return eng
 
 

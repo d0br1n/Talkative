@@ -51,6 +51,11 @@ def report(results_dir: Path) -> str:
         lines.append(f"| {r['engine']} | {_fmt(r['first_audio_p50'], '.3f')} "
                      f"| {_fmt(r['first_audio_p95'], '.3f')} | {verdict} |")
 
+    if tts:
+        measurement = next((r["measurement"] for r in tts if r.get("measurement")), None)
+        if measurement:
+            lines += ["", f"Measurement: {measurement}."]
+
     if failed:
         lines += ["", "## Failed engines", ""]
         lines += [f"- {name}: {status}" for name, status in failed]

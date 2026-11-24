@@ -21,7 +21,7 @@ from bench.card import LINES
 from bench.prepare import LabelledClip, load_clips
 from bench.score import ClipResult, summarise
 from bench.stt import ENGINES, VOCAB_PROMPT, SttEngine
-from bench.tts import MAX_TTS_FIRST_AUDIO_P50_S, TTS_ENGINES
+from bench.tts import MAX_TTS_FIRST_AUDIO_P50_S, MEASUREMENT, TTS_ENGINES
 
 
 def run_stt(engine: SttEngine, clips: list[LabelledClip]) -> list[ClipResult]:
@@ -84,9 +84,14 @@ class VramPoller:
             if value is not None:
                 self.peak = value if self.peak is None else max(self.peak, value)
 
-    @property
-    def peak_above_baseline(self) -> float | None:
-        if not self.enabled or self.peak is None:
+    def peak_so_far(self) -> float | None:
+        """Peak above the baseline so far (also valid mid-run, e.g. after a failure)."""
+        if not self.enabled:
+            return None
+        value = self._read()
+        if value is not None:
+            self.peak = value if self.peak is None else max(self.peak, value)
+        if self.peak is None:
             return None
         return max(0.0, self.peak - self._baseline)
 
@@ -117,14 +122,16 @@ def run_stt_cli(engine: str, clips: Path, out: Path, host: str | None = None) ->
         all_clips = load_clips(clips)
         data["skipped_unlabelled"] = sum(c.line_id is None for c in all_clips)
         with VramPoller() as vram:
-            eng = ENGINES[engine]()
-            eng.load()
-            data["device"] = getattr(eng, "device", None)
-            rows = run_stt(eng, all_clips)
+            try:
+                eng = ENGINES[engine]()
+                eng.load()
+                data["device"] = getattr(eng, "device", None)
+                rows = run_stt(eng, all_clips)
+            finally:
+                data["peak_vram_mb"] = vram.peak_so_far()
         score = summarise(rows)
         data["rows"] = [asdict(r) for r in rows]
         data.update(asdict(score))
-        data["peak_vram_mb"] = vram.peak_above_baseline
     except Exception as exc:
         data["status"] = _failure(exc)
     data["peak_rss_mb"] = _peak_rss_mb()
@@ -135,7 +142,8 @@ def run_stt_cli(engine: str, clips: Path, out: Path, host: str | None = None) ->
 
 def run_tts_cli(engine: str, out: Path, host: str | None = None) -> Path:
     host = host or socket.gethostname()
-    data: dict = {"kind": "tts", "engine": engine, "host": host, "status": "ok", "sentences": []}
+    data: dict = {"kind": "tts", "engine": engine, "host": host, "status": "ok",
+                  "measurement": MEASUREMENT, "sentences": []}
     try:
         eng = TTS_ENGINES[engine]()
         eng.load()
@@ -152,6 +160,18 @@ def run_tts_cli(engine: str, out: Path, host: str | None = None) -> Path:
     return _write(out, data)
 
 
+def guarded(kind: str, engine: str, host: str, out: Path, cmd: list[str]) -> int:
+    """Run one engine's process; a crash (OOM kill, abort) still leaves a failed result.
+
+    Any earlier result is deleted first, so a stale JSON can never pass for a fresh one.
+    """
+    out.unlink(missing_ok=True)
+    code = subprocess.run(cmd).returncode
+    if code != 0 and not out.exists():
+        _write(out, {"kind": kind, "engine": engine, "host": host, "status": f"failed: exited {code}"})
+    return code
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="bench.run")
     sub = p.add_subparsers(dest="mode", required=True)
@@ -164,7 +184,17 @@ def main(argv: list[str] | None = None) -> None:
     t.add_argument("--engine", required=True, choices=sorted(TTS_ENGINES))
     t.add_argument("--out", type=Path, required=True)
     t.add_argument("--host")
+    g = sub.add_parser("guard", help="run an engine command; record a failed result if it crashes")
+    g.add_argument("--kind", required=True, choices=["stt", "tts"])
+    g.add_argument("--engine", required=True)
+    g.add_argument("--host", required=True)
+    g.add_argument("--out", type=Path, required=True)
+    g.add_argument("cmd", nargs=argparse.REMAINDER)
     a = p.parse_args(argv)
+    if a.mode == "guard":
+        cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
+        guarded(a.kind, a.engine, a.host, a.out, cmd)
+        return
     if a.mode == "stt":
         out = run_stt_cli(a.engine, a.clips, a.out, a.host)
     else:

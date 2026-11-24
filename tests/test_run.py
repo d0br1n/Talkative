@@ -59,3 +59,72 @@ def test_report_marks_bars(results_dir_with_one_passing_one_failing):
     assert "✅" in md and "❌" in md and "WER" in md
     assert "failed: MemoryError: oom" in md
     assert "kokoro" in md
+
+
+def test_crash_leaves_failed_record_and_report_entry(tmp_path):
+    import sys
+
+    from bench.run import guarded
+
+    out = tmp_path / "boom.json"
+    out.write_text(json.dumps({"engine": "boom", "kind": "stt", "status": "ok", "passes": True}))  # stale
+    code = guarded("stt", "boom", "h", out, [sys.executable, "-c", "import os; os._exit(137)"])
+    assert code == 137
+    assert json.loads(out.read_text())["status"] == "failed: exited 137"
+    md = report(tmp_path)
+    assert "boom" in md and "failed: exited 137" in md
+
+
+def test_guard_keeps_fresh_result(tmp_path):
+    import sys
+
+    from bench.run import guarded
+
+    out = tmp_path / "e.json"
+    script = f"import pathlib; pathlib.Path({str(out)!r}).write_text('{{\"status\": \"failed: X: y\"}}')"
+    guarded("stt", "e", "h", out, [sys.executable, "-c", script + "; raise SystemExit(1)"])
+    assert json.loads(out.read_text())["status"] == "failed: X: y"
+
+
+def test_guard_cli_via_script_path(tmp_path):
+    import subprocess
+    import sys
+
+    out = tmp_path / "x.json"
+    subprocess.run([sys.executable, "-m", "bench.run", "guard", "--kind", "tts", "--engine", "x",
+                    "--host", "h", "--out", str(out), "--", sys.executable, "-c", "raise SystemExit(3)"],
+                   check=True)
+    assert json.loads(out.read_text()) == {"kind": "tts", "engine": "x", "host": "h",
+                                          "status": "failed: exited 3"}
+
+
+def test_tts_json_has_measurement_and_report_note(tmp_path, monkeypatch):
+    class FakeTts:
+        name = "ft"
+
+        def load(self):
+            pass
+
+        def first_audio_s(self, s):
+            return 0.1
+
+    monkeypatch.setitem(run.TTS_ENGINES, "ft", FakeTts)
+    out = run.run_tts_cli("ft", tmp_path / "ft.json", host="h")
+    data = json.loads(out.read_text())
+    assert "non-streaming" in data["measurement"] and len(data["sentences"]) == 19
+    assert "non-streaming" in report(tmp_path)
+
+
+def test_failed_stt_keeps_vram_peak(tmp_path, clips, monkeypatch):
+    class Boom:
+        name = "b"
+        device = "cuda"
+
+        def load(self):
+            raise MemoryError("oom")
+
+    monkeypatch.setitem(run.ENGINES, "b", Boom)
+    monkeypatch.setattr(run, "load_clips", lambda p: clips)
+    monkeypatch.setattr(run.VramPoller, "peak_so_far", lambda self: 1234.0)
+    data = json.loads(run_stt_cli("b", tmp_path, tmp_path / "b.json").read_text())
+    assert data["status"].startswith("failed: MemoryError") and data["peak_vram_mb"] == 1234.0
