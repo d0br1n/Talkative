@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Talkative: talk to your coding agent</title>
+<meta name="description" content="Talkative lets you hold a spoken conversation with Claude Code from your iPhone, on hardware you own. Open source, in development.">
+<link rel="stylesheet" href="styles.css">
+<script src="mark.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wordmark" role="img" aria-label="Talkative">
+<pre aria-hidden="true"> *=*==+*++:*==-+-+                   =@&amp;#@*'`-#@%@@*                                  ++.      '%@&amp;@&amp;#
+**&amp;8&amp;%%&amp;8#%@+#&amp;%&amp;#                   *8#8&amp;@  +%@@@#'                                -@#&amp;       *#&amp;88@'
+&amp;&amp;8@&amp;@8#@*%8%#%%%-   :=&amp;#+*. +=~*~   #*+%#&amp;  %&amp;&amp;8#%    :--*=-     --+8+~ ::*=#.   -@@*&amp;@---=   &amp;88+=+'+=~+*-     ,:~=+=       -++::
+##*8&amp;@##8#%%##%**  -8@@&amp;&amp;%%#*+%@&amp;8  -@@8@#~ =*&amp;@@#= `=@&amp;@@&amp;#.   %8&amp;@8*%8*8@@@## =%%*&amp;@&amp;8&amp;@@&amp;  =8@%&amp;8-:##@8@8    #@%&amp;##*   +*@@88%%@#*=
+     ####@@       #%#*@%8%@%@8%%%%  8#@8@&amp;  *&amp;@@@@ .#*8#@&amp;=   =@##@8@@@@%##*@@+ #=+%&amp;#@+&amp;&amp;&amp;= `=&amp;%&amp;*@  %@%@#%   '@8#%@+  '8@=#@*#@#%#88#
+    '#*8@&amp;#      @8@&amp;@%&amp;*##&amp;@#8@@# .%**@&amp;=  %@@&amp;8+*&amp;@@%8=    ~**%8@**#*@@#&amp;%**  =#&amp;%@@8+-*-   =&amp;#@%*: `@@@=%:  #*8&amp;8@  -8%#8#&amp;+-*&amp;&amp;@@8%
+    &amp;#888#+     *@8%8#*    8@=@*@` -@@&amp;%%= ~#%@#@8&amp;88@8     .8#%&amp;8#    +@&amp;@@#*  -#&amp;%88-      +&amp;%@%%~   @&amp;8@@+ #&amp;#@8*   @*#*%@#*++#8@@@&amp;
+    88&amp;8@&amp;      &amp;@@@%&amp;:    %**@@%  &amp;%@#@*  #&amp;#8#*8#@##      =#8##8     +@*@=#=  +&amp;@&amp;%#       *%%8#*    *%%&amp;%+*#88@=   :%@*&amp;#@+@@@%+@8%+
+   -%%%8@*     :8%8###   -*%&amp;8@&amp;=  &amp;8@*8=  8%@@@*%#@%#@,,   ==#%88=  .-&amp;88&amp;8&amp;   8###%8   ,   @@%&amp;##    *%8&amp;@@%8&amp;*&amp;    *&amp;@%%8+~~=. ::'
+   #&amp;##*@=      @@@@@@%8#&amp;@#*@@8' +&amp;8#&amp;@. ~&amp;%#@%= #8%#@8    +##@@&amp;8&amp;@88@#*88*`  *@@#@#@%@#  =@8%%%',   '&amp;@8@8&amp;@#&amp;      #@#@@@*=#*8@=
+   @8&amp;#%*      .=#@#@@@&amp;%@#*&amp;8%8  @@@@@%  #%**@%   8&amp;&amp;@#&amp;    %%%#&amp;&amp;8@&amp;@@@8&amp;*:   **##*&amp;@8**  8#8&amp;#@      *@#&amp;%+%+       ~#%*&amp;%8@@@*&amp;+
+  `@@8#&amp;*        -=@*#88+=8&amp;@%@+' 8+&amp;*&amp;+  &amp;@#8&amp;-   =%*@+##    +8#&amp;8@@=#@@8&amp;#     -@@&amp;&amp;&amp;%#:  *#%&amp;@*      `#&amp;@##8          #&amp;#*&amp;8*@##-</pre>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" aria-labelledby="hero-title">
+  <h1 id="hero-title">Talk to your coding agent like a colleague — from anywhere, on hardware you own.</h1>
+  <p class="subhead">Hold a real spoken conversation with Claude Code from your iPhone. Phone in your pocket, screen locked, earbuds in. Interrupt it whenever you like.</p>
+
+  <!-- TODO(owner): hero photo — optional photo slot -->
+
+  <div class="hero-mark" role="img" aria-label="Voice-bar mark: a row of sound bars">
+<pre id="hero-mark" aria-hidden="true">               :       +,
+         .    ==      =#+
+         ~+=  ==   ,  **#  ,:*   `
+         +*+  &amp;8  **  &amp;8#  #*#  -+
+ `   =*  %%8  8#  +*  @#*  #@%  88
+#&amp;*  +*  8@#  #%  8# :@@8 ,#&amp;&amp;  &amp;@
+@8@  *@  &amp;@* '8&amp;  8*  &amp;@%  8&amp;8  @&amp;
+#%*  %&amp;  &amp;@8. @* .@#  #@*  #%8  @8
+: .  ==  #%*  *#  +#  #8#  #%8  #8
+     `   =8=  +*  -,  %&amp;%  +8+  =*
+         =*'  *#  ::  ++*  =~`  '
+           '  =-      -*=</pre>
+  </div>
+
+  <div class="cta">
+    <form data-notify-form action="#" novalidate>
+      <!-- TODO(owner): notify endpoint -->
+      <label for="notify-email">Email, to follow development</label>
+      <input id="notify-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+      <button type="submit">[ follow development ]</button>
+      <p class="form-note">This form is a placeholder. It does not send anything yet.</p>
+      <p role="status"></p>
+    </form>
+    <!-- TODO(owner): repository URL -->
+    <a class="button" href="#">[ read the design ]</a>
+  </div>
+</section>
+
+<section aria-labelledby="problem-title">
+  <h2 id="problem-title">## the problem</h2>
+  <p>Your agent works for twenty minutes at a time.</p>
+  <p>You shouldn't have to sit and watch it.</p>
+</section>
+
+<section aria-labelledby="conversation-title">
+  <h2 id="conversation-title">## how a conversation feels</h2>
+  <p class="label">Illustrative. A scripted example, not a recording.</p>
+  <ol class="transcript">
+    <li><span class="prompt">you ›</span> How's the auth refactor going?</li>
+    <li><span class="prompt">talkative ›</span> Two of three jobs are done. The third is running in the background, so I'm free to talk.</li>
+    <li><span class="prompt">you ›</span> Which files did the second job touch—</li>
+    <li><span class="prompt">talkative ›</span> Mostly the session code. In short, it—</li>
+    <li><span class="prompt">you ›</span> Never mind. Just tell me when the third one finishes.</li>
+    <li><span class="prompt">talkative ›</span> The third job just finished and the tests pass. I'd like to push the branch. Tap Approve on your phone.</li>
+    <li><span class="prompt">you ›</span> <em>(taps Approve)</em></li>
+  </ol>
+</section>
+
+<section aria-labelledby="points-title">
+  <h2 id="points-title">## what you get</h2>
+  <div class="cards">
+    <article class="card">
+      <h3>A conversation, not dictation.</h3>
+      <p>It talks back in plain spoken language, and you can cut in. It summarises decisions and progress. It never reads code aloud. Code and diffs appear on screen for when you look.</p>
+    </article>
+    <article class="card">
+      <h3>It keeps working while you talk.</h3>
+      <p>The coordinator hands long jobs to background subagents and stays free to chat. When a job finishes, it tells you on its own.</p>
+    </article>
+    <article class="card">
+      <h3>Private by default.</h3>
+      <p>Speech runs on your own machine or server, reachable only over your private Tailscale network. No third-party voice service is involved unless you explicitly switch one on.</p>
+    </article>
+    <article class="card">
+      <h3>Built for pockets and bad signal.</h3>
+      <p>It works with the screen locked and earbuds in. It survives tunnels and dropouts, and tells you what you missed when you reconnect.</p>
+    </article>
+    <article class="card">
+      <h3>You stay in control.</h3>
+      <p>Anything that needs your permission waits for you to tap Approve on your phone. If you don't answer in time, the answer is no.</p>
+    </article>
+    <article class="card">
+      <h3>Runs your way.</h3>
+      <p>Split setup: speech on an always-on server, the agent on your computer. Or run everything on one machine.</p>
+    </article>
+  </div>
+</section>
+
+<section aria-labelledby="how-title">
+  <h2 id="how-title">## how it works</h2>
+  <p>Your phone talks to the voice side. Only text goes on to your agent.</p>
+  <div class="toggle" role="group" aria-label="Choose a setup">
+    <button type="button" data-diagram="split" aria-pressed="true" hidden>[ split setup ]</button>
+    <button type="button" data-diagram="local" aria-pressed="false" hidden>[ one machine ]</button>
+  </div>
+
+  <div id="diagram-split" class="diagram">
+    <h3>Split setup</h3>
+    <div role="img" aria-label="Diagram: iPhone, over Tailscale, to a voice server, then text only to your computer's agent host, then Claude Code and subagents.">
+<pre aria-hidden="true">          ┌──────────────┐
+          │    iPhone    │
+          └──────────────┘
+                 │
+                 │ Tailscale
+                 ▼
+  ┌──────────────────────────────┐
+  │         voice server         │
+  │                              │
+  │      speech recognition      │
+  │        speech output         │
+  └──────────────────────────────┘
+                 │
+                 │ text only
+                 ▼
+  ┌──────────────────────────────┐
+  │        your computer         │
+  │                              │
+  │          agent host          │
+  └──────────────────────────────┘
+                 │
+                 ▼
+  ┌──────────────────────────────┐
+  │         Claude Code          │
+  │         + subagents          │
+  └──────────────────────────────┘</pre>
+    </div>
+    <ol class="sr-only">
+      <li>Your iPhone connects over Tailscale.</li>
+      <li>A voice server does speech recognition and speech output.</li>
+      <li>Only text goes on to the agent host on your computer.</li>
+      <li>The agent host runs Claude Code and its subagents.</li>
+    </ol>
+  </div>
+
+  <div id="diagram-local" class="diagram">
+    <h3>One machine</h3>
+    <div role="img" aria-label="Diagram: iPhone, over Tailscale, to one machine that runs speech and the agent host, then Claude Code and subagents.">
+<pre aria-hidden="true">          ┌──────────────┐
+          │    iPhone    │
+          └──────────────┘
+                 │
+                 │ Tailscale
+                 ▼
+  ┌──────────────────────────────┐
+  │         one machine          │
+  │                              │
+  │     speech + agent host      │
+  └──────────────────────────────┘
+                 │
+                 ▼
+  ┌──────────────────────────────┐
+  │         Claude Code          │
+  │         + subagents          │
+  └──────────────────────────────┘</pre>
+    </div>
+    <ol class="sr-only">
+      <li>Your iPhone connects over Tailscale.</li>
+      <li>One machine does speech recognition, speech output and the agent host.</li>
+      <li>The agent host runs Claude Code and its subagents.</li>
+    </ol>
+  </div>
+</section>
+
+<section aria-labelledby="privacy-title">
+  <h2 id="privacy-title">## privacy</h2>
+  <p>Talkative is private by default. Here is exactly what that means.</p>
+  <h3>Stays on your hardware</h3>
+  <ul>
+    <li>Your voice audio.</li>
+    <li>Speech recognition and speech output.</li>
+    <li>The agent host and your project files.</li>
+  </ul>
+  <h3>What can leave, and when</h3>
+  <ul>
+    <li>Traffic between your phone and your machines travels over your private Tailscale network.</li>
+    <li>Claude Code talks to Claude with your normal login, as it does without Talkative.</li>
+    <li>A cloud speech engine, only if you explicitly switch one on.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="oss-title">
+  <h2 id="oss-title">## open source</h2>
+  <p>Talkative is open source under the MIT licence.</p>
+  <!-- TODO(owner): repository URL -->
+  <p><a class="button" href="#">[ read the design ]</a></p>
+</section>
+
+<section aria-labelledby="faq-title">
+  <h2 id="faq-title">## status and faq</h2>
+  <p class="status">Status: in development. Not released yet. iPhone only.</p>
+  <details>
+    <summary>Does it work on Android?</summary>
+    <p>Not in the first version. iPhone only.</p>
+  </details>
+  <details>
+    <summary>Is it in the App Store?</summary>
+    <p>No. Early versions are installed by sideloading. App Store distribution may come later.</p>
+  </details>
+  <details>
+    <summary>Do I need a GPU?</summary>
+    <p>No. Speech can run on a CPU server. A GPU makes it faster.</p>
+  </details>
+  <details>
+    <summary>Does my audio go to the cloud?</summary>
+    <p>Not by default. Speech runs on your own hardware. Cloud speech engines can only be enabled explicitly.</p>
+  </details>
+  <details>
+    <summary>Which coding agent?</summary>
+    <p>Claude Code. It uses your normal Claude Code login, and Talkative is not affiliated with Anthropic.</p>
+  </details>
+  <details>
+    <summary>What does it cost?</summary>
+    <p>Talkative is free and open source. You pay for your own Claude usage and for any server you choose to run.</p>
+  </details>
+</section>
+
+</main>
+
+<footer>
+  <p>Talkative is an independent open-source project and is not affiliated with Anthropic.</p>
+  <p>MIT licence. <!-- TODO(owner): repository URL --><a href="#">Repository</a></p>
+</footer>
+
+</body>
+</html>
