@@ -38,7 +38,7 @@ describe("turns", () => {
     c.start();
     await until(() => has(out, { t: "agent", state: "ready" }));
     expect(out[0]).toEqual({ t: "agent", state: "starting" });
-    expect(c.sessionId).toBe("sess-1");
+    await until(() => c.sessionId === "sess-1");
     c.turn("t1", "hi", "brief");
     await until(() => has(out, { t: "turnEnd" }));
     expect(readLog(log).find((e) => e.stdin?.type === "user")!.stdin).toEqual({ type: "user", message: { role: "user", content: "[verbosity: brief]\nhi" } });
@@ -52,6 +52,16 @@ describe("turns", () => {
     ]);
     const args = readLog(log)[0]!.args!;
     expect(args).not.toContain("--resume");
+  });
+
+  test("ready once running: real claude prints no init until the first user message", async () => {
+    const { c, out } = make("silent-until-turn");
+    c.start();
+    await until(() => has(out, { t: "agent", state: "ready" }));
+    expect(c.sessionId).toBeNull();
+    c.turn("t1", "hi", "brief");
+    await until(() => has(out, { t: "turnEnd", turnId: "t1", ok: true }));
+    expect(c.sessionId).toBe("sess-quiet");
   });
 
   test("tool blocks emit tool start/end, not a text block", async () => {
@@ -91,9 +101,10 @@ describe("restarts", () => {
   test("newConversation restarts without --resume", async () => {
     const { c, out, log } = make("text-turn");
     c.start();
-    await until(() => has(out, { t: "agent", state: "ready" }));
+    await until(() => c.sessionId === "sess-1");
     c.newConversation();
     await until(() => out.filter((m) => m.t === "agent" && m.state === "ready").length === 2);
+    await until(() => readLog(log).filter((e) => e.args).length === 2);
     const starts = readLog(log).filter((e) => e.args);
     expect(starts.length).toBe(2);
     expect(starts[1]!.args).not.toContain("--resume");
@@ -103,9 +114,10 @@ describe("restarts", () => {
   test("settings restarts with --resume and the new model", async () => {
     const { c, out, log } = make("text-turn");
     c.start();
-    await until(() => has(out, { t: "agent", state: "ready" }));
+    await until(() => c.sessionId === "sess-1");
     c.settings("opus", "high");
     await until(() => out.filter((m) => m.t === "agent" && m.state === "ready").length === 2);
+    await until(() => readLog(log).filter((e) => e.args).length === 2);
     const a = readLog(log).filter((e) => e.args)[1]!.args!;
     expect(a.slice(-2)).toEqual(["--resume", "sess-1"]);
     expect(a[a.indexOf("--model") + 1]).toBe("opus");
@@ -115,9 +127,10 @@ describe("restarts", () => {
   test("crash restarts with --resume, closes the open turn", async () => {
     const { c, out, log } = make("crash-on-turn");
     c.start();
-    await until(() => has(out, { t: "agent", state: "ready" }));
+    await until(() => c.sessionId === "sess-1");
     c.turn("t1", "hi", "brief");
     await until(() => out.filter((m) => m.t === "agent" && m.state === "ready").length === 2);
+    await until(() => readLog(log).filter((e) => e.args).length === 2);
     expect(has(out, { t: "turnEnd", turnId: "t1", ok: false })).toBe(true);
     const restartingAt = out.findIndex((m) => m.t === "agent" && m.state === "restarting");
     expect(restartingAt).toBeGreaterThan(-1);

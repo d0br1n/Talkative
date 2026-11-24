@@ -150,6 +150,8 @@ export class Coordinator {
     const args = claudeArgs({ model: this.model, effort: this.effort, resume: this.session ?? undefined });
     const p = this.spawn(args, this.cwd);
     this.cur = p;
+    // claude on stream-json prints nothing, not even init, until its first user message: running is ready
+    this.emit({ t: "agent", state: "ready" });
     const drained = this.read(p);
     return {
       write: (o) => p.write(o),
@@ -222,8 +224,8 @@ export class Coordinator {
     switch (ev.type) {
       case "system":
         if (ev.subtype === "init") {
+          // ready was said at spawn: init only comes with the first user message
           if (typeof ev.session_id === "string" && ev.session_id) this.session = ev.session_id;
-          this.emit({ t: "agent", state: "ready" });
           return;
         }
         for (const m of this.jobs.observe(ev)) this.emit(m);
