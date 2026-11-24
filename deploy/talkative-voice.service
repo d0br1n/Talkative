@@ -1,0 +1,16 @@
+# systemd user unit: the voice side (speech, pairing, LiveKit room, link server).
+# Install: copy to ~/.config/systemd/user/, edit WorkingDirectory, then
+#   systemctl --user daemon-reload && systemctl --user enable --now talkative-voice
+[Unit]
+Description=Talkative voice
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/Talkative
+ExecStart=%h/.bun/bin/bun src/main.ts voice
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
