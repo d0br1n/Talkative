@@ -37,6 +37,7 @@ export class Coordinator {
   private cur: ClaudeProcess | null = null;
   private readonly loggedErrors = new Set<string>();
   private readonly tickMs: number;
+  private readonly readyAfterMs: number;
   private ticker: ReturnType<typeof setInterval> | null = null;
 
   // turn state
@@ -60,6 +61,8 @@ export class Coordinator {
     now?: () => number;
     tickMs?: number;
     sleep?: (ms: number) => Promise<void>;
+    /** After a failure, a respawned process that stays up this long, silent or not, is ready. */
+    readyAfterMs?: number;
   }) {
     this.spawn = o.spawn;
     this.cwd = o.cwd;
@@ -69,6 +72,7 @@ export class Coordinator {
     this.approvalTimeoutMs = o.approvalTimeoutMs ?? 1_800_000;
     this.now = o.now ?? Date.now;
     this.tickMs = o.tickMs ?? 1000;
+    this.readyAfterMs = o.readyAfterMs ?? 3000;
     this.supervisor = new Supervisor({
       start: () => this.launch(),
       onCrash: (_code, stderr) => this.crashed(stderr),
@@ -151,11 +155,18 @@ export class Coordinator {
     const p = this.spawn(args, this.cwd);
     this.cur = p;
     // claude on stream-json prints nothing, not even init, until its first user message, so running is
-    // ready. After a failure, though, ready waits for the process to say something: a crash loop
-    // (an expired login, a bad flag) must not flash ready between its crashes.
-    const healthy = this.supervisor.failureCount === 0;
-    if (healthy) this.emit({ t: "agent", state: "ready" });
-    const drained = this.read(p, healthy);
+    // ready. After a failure, though, ready waits for the process to print a line or to stay up for
+    // readyAfterMs: a crash loop (an expired login, a bad flag) must not flash ready between its crashes.
+    const ready = { announced: false };
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (this.supervisor.failureCount === 0) this.announce(p, ready);
+    else {
+      timer = setTimeout(() => this.announce(p, ready), this.readyAfterMs);
+      (timer as any).unref?.();
+      const clear = () => { if (timer) clearTimeout(timer); };
+      p.exited.then(clear, clear);
+    }
+    const drained = this.read(p, ready);
     return {
       write: (o) => p.write(o),
       lines: p.lines,
@@ -165,14 +176,18 @@ export class Coordinator {
     };
   }
 
-  private async read(p: ClaudeProcess, announced: boolean): Promise<void> {
+  /** Say ready once per process, and only while it is the current one. */
+  private announce(p: ClaudeProcess, ready: { announced: boolean }): void {
+    if (ready.announced || this.cur !== p) return;
+    ready.announced = true;
+    this.emit({ t: "agent", state: "ready" });
+  }
+
+  private async read(p: ClaudeProcess, ready: { announced: boolean }): Promise<void> {
     try {
       for await (const ev of p.lines) {
         if (this.cur !== p) continue;
-        if (!announced) {
-          announced = true;
-          this.emit({ t: "agent", state: "ready" });
-        }
+        this.announce(p, ready);
         try {
           this.handle(ev);
         } catch (err) {

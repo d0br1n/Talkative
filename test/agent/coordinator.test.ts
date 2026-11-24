@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { claudeArgs } from "../../src/agent/claude";
+import { claudeArgs, spawnCommand, type Spawn } from "../../src/agent/claude";
 import { Coordinator } from "../../src/agent/coordinator";
 import { DENIED_BY_OWNER, DENIED_BY_TIMEOUT, SPOKEN_STYLE, withVerbosity } from "../../src/agent/prompt";
 import type { AgentToVoice } from "../../src/shared/link";
@@ -155,6 +155,40 @@ describe("restarts", () => {
     const states = out.filter((m) => m.t === "agent").map((m) => (m as { state: string }).state);
     // the first spawn is ready at once; each retry is ready only once its init line arrives
     expect(states.slice(0, 4)).toEqual(["starting", "ready", "restarting", "ready"]);
+  });
+
+  /** A coordinator whose nth spawn runs the nth fixture (the last one repeats); agent states are timestamped. */
+  function sequenced(fixtures: string[], readyAfterMs: number) {
+    let n = 0;
+    const spawn: Spawn = (args, cwd) =>
+      spawnCommand(["bun", "test/fixtures/fake-claude.ts", fixtures[Math.min(n++, fixtures.length - 1)]!, ...args], cwd);
+    const states: { state: string; at: number }[] = [];
+    const c = new Coordinator({
+      spawn, cwd: process.cwd(), model: "sonnet", effort: "default", sleep: async () => {}, readyAfterMs,
+      emit: (m) => { if (m.t === "agent") states.push({ state: m.state, at: performance.now() }); },
+    });
+    live.push(c);
+    return { c, states };
+  }
+
+  test("after a crash, a respawn that stays up silent is ready after readyAfterMs", async () => {
+    const { c, states } = sequenced(["crash-on-start", "silent-until-turn"], 200);
+    c.start();
+    await until(() => states.filter((s) => s.state === "ready").length === 2);
+    const restarting = states.find((s) => s.state === "restarting")!;
+    const ready = states.filter((s) => s.state === "ready")[1]!;
+    expect(states.map((s) => s.state)).toEqual(["starting", "ready", "restarting", "ready"]);
+    expect(ready.at - restarting.at).toBeGreaterThanOrEqual(180);
+  });
+
+  test("after a crash, a respawn that prints first is ready once, not again when the timer would fire", async () => {
+    const { c, states } = sequenced(["crash-on-start", "text-turn"], 400);
+    c.start();
+    await until(() => states.filter((s) => s.state === "ready").length === 2);
+    const restarting = states.find((s) => s.state === "restarting")!;
+    expect(states.filter((s) => s.state === "ready")[1]!.at - restarting.at).toBeLessThan(400);
+    await Bun.sleep(600);
+    expect(states.map((s) => s.state)).toEqual(["starting", "ready", "restarting", "ready"]);
   });
 
   test("repeated start failures emit crashed with the last stderr line", async () => {
