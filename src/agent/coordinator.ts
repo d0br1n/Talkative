@@ -1,6 +1,7 @@
 // Portions adapted from crsmithdev/sidetone, Copyright (c) 2026 Chris Smith, MIT License.
 import type { AgentToVoice, Effort, Verbosity } from "../shared/link";
 import { claudeArgs, type ClaudeProcess, type Spawn } from "./claude";
+import { JobTracker } from "./jobs";
 import { DENIED_BY_OWNER, DENIED_BY_TIMEOUT, withVerbosity } from "./prompt";
 import { Supervisor } from "./supervisor";
 
@@ -47,6 +48,7 @@ export class Coordinator {
   private tools = new Map<string, { name: string; summary: string }>();
 
   private pending = new Map<string, Pending>();
+  private readonly jobs = new JobTracker();
 
   constructor(o: {
     spawn: Spawn;
@@ -194,6 +196,7 @@ export class Coordinator {
     this.queued = [];
     this.open.clear();
     this.tools.clear();
+    this.jobs.reset();
   }
 
   // ---- stream-json -> AgentToVoice ----
@@ -221,7 +224,9 @@ export class Coordinator {
         if (ev.subtype === "init") {
           if (typeof ev.session_id === "string" && ev.session_id) this.session = ev.session_id;
           this.emit({ t: "agent", state: "ready" });
+          return;
         }
+        for (const m of this.jobs.observe(ev)) this.emit(m);
         return;
       case "stream_event":
         if (ev.parent_tool_use_id) return;

@@ -1,0 +1,18 @@
+{"type": "system", "subtype": "init", "session_id": "sess-1", "model": "sonnet"}
+{"fake": "await-user"}
+{"type": "system", "subtype": "background_tasks_changed", "tasks": [{"task_id": "addfdf28f1ea954ad", "task_type": "local_agent", "description": "Run four sleeps sequentially"}]}
+{"type": "system", "subtype": "task_started", "task_id": "addfdf28f1ea954ad", "description": "Run four sleeps sequentially", "task_type": "local_agent", "is_backgrounded": true}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "started"}]}}
+{"type": "result", "subtype": "success", "is_error": false, "result": "done", "session_id": "sess-1"}
+{"type": "system", "subtype": "task_started", "task_id": "be6wpk8t6", "description": "sleep 20", "task_type": "local_bash", "owned_by_subagent": true, "parent_task_id": "addfdf28f1ea954ad"}
+{"type": "system", "subtype": "task_notification", "task_id": "be6wpk8t6", "status": "completed", "summary": "sleep 20"}
+{"type": "system", "subtype": "task_started", "task_id": "bo5jcwex1", "description": "sleep 20", "task_type": "local_bash", "owned_by_subagent": true, "parent_task_id": "addfdf28f1ea954ad"}
+{"type": "system", "subtype": "task_notification", "task_id": "bo5jcwex1", "status": "completed", "summary": "sleep 20"}
+{"type": "system", "subtype": "task_started", "task_id": "bm9umltlx", "description": "sleep 20", "task_type": "local_bash", "owned_by_subagent": true, "parent_task_id": "addfdf28f1ea954ad"}
+{"type": "system", "subtype": "task_notification", "task_id": "bm9umltlx", "status": "completed", "summary": "sleep 20"}
+{"type": "system", "subtype": "task_started", "task_id": "b2y2o4zrn", "description": "sleep 20", "task_type": "local_bash", "owned_by_subagent": true, "parent_task_id": "addfdf28f1ea954ad"}
+{"type": "system", "subtype": "task_notification", "task_id": "b2y2o4zrn", "status": "completed", "summary": "sleep 20"}
+{"type": "system", "subtype": "task_notification", "task_id": "addfdf28f1ea954ad", "status": "completed", "summary": "SUBAGENT-DONE"}
+{"type": "system", "subtype": "background_tasks_changed", "tasks": []}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "The background job has finished."}]}}
+{"type": "result", "subtype": "success", "is_error": false, "result": "done", "session_id": "sess-1"}
