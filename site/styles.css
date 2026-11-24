@@ -209,12 +209,22 @@ button {
   cursor: pointer;
 }
 
-.button:hover,
-button:hover,
+/* Pressed toggle: inverse video. */
 button[aria-pressed="true"] {
   background: var(--accent);
   color: var(--bg);
   text-shadow: none;
+}
+
+/* Hover only on devices that really hover, so a tapped, unpressed toggle
+   never sticks in the pressed look on a phone. */
+@media (hover: hover) {
+  .button:hover,
+  button:hover {
+    background: var(--accent);
+    color: var(--bg);
+    text-shadow: none;
+  }
 }
 
 :focus-visible {
@@ -266,11 +276,14 @@ pre {
   white-space: pre;
 }
 
-/* Clip, never scroll, if a user minimum font size ever inflates the art. */
+/* Clip, never scroll, if a user minimum font size ever inflates the art.
+   "safe center" falls back to start alignment on overflow, so the clip
+   only ever cuts the right edge, never the left. */
 .wordmark,
 .hero-mark {
   display: flex;
   justify-content: center;
+  justify-content: safe center;
   overflow-x: hidden;
   overflow-x: clip;
 }
@@ -281,19 +294,38 @@ pre {
 
 /* Wordmark: 135 columns. At 0.62vw it is 135 x 0.6 x 0.62vw = 50.2vw wide.
    At 360px the 3px floor applies: 243px, inside the 328px column. */
+/* Bold in light mode: with no glow, the thin regular strokes wash out to
+   grey at the 3px floor. Dark mode keeps the branding's regular weight,
+   because the glow already gives it body. Bold has the same 0.6em advance,
+   so the width math is unchanged. */
 .wordmark pre {
   font-size: clamp(3px, 0.62vw, 9px);
+  font-weight: 700;
   color: var(--text);
   text-shadow: var(--glow-art);
 }
 
-/* Mark: 34 columns, so 34 x 0.6 x 2.4vw = 49vw wide; 176px at 360px. */
+@media (prefers-color-scheme: dark) {
+  .wordmark pre {
+    font-weight: 400;
+  }
+}
+
+/* Mark: the static frame is 34 x 12 and the animated frame from mark.js
+   is 56 x 15. The widest is 56 x 0.6 x 2.4vw = 80.6vw wide: 290px at
+   360px, inside the 328px column (capped at 14px: 470px). min-height
+   reserves the 15 animated rows so nothing shifts when the script starts,
+   and the column flex centres the 12-row static frame within that space. */
 .hero-mark {
   margin: 2.5rem 0;
   padding-block: 1rem;
 }
 
 .hero-mark pre {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 15em;
   font-size: clamp(6px, 2.4vw, 14px);
   color: var(--accent);
   text-shadow: var(--glow-art);
@@ -436,8 +468,14 @@ input::placeholder {
 /* Diagrams: 34 columns = 20.4em. Since 20.4 / 21 x (100vw - 40px) is always
    under 100vw - 32px, they fit the column at any width. At 360px the 15px
    cap applies: 306px wide, inside the 328px column. */
+/* Horizontal overflow stays a last-resort scroll inside the box. Vertical
+   overflow is hidden: glyph boxes at line-height 1 poke about 2px past the
+   pre, which otherwise showed a stray vertical scrollbar. The padding gives
+   that ink room, so hiding it clips nothing visible. */
 .diagram [role="img"] {
+  padding-block: 0.25em;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .diagram pre {
