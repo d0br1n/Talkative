@@ -69,7 +69,7 @@ test("writeLivekitConfig writes yaml and keys.json mode 600", () => {
   const keys = JSON.parse(readFileSync(keysPath, "utf8"));
   const yaml = readFileSync(r.path, "utf8");
   expect(yaml).toContain("port: 7880");
-  expect(yaml).toContain("tcp_port: 7881");
+  expect(yaml).toContain("tcp_port: 0");
   expect(yaml).toContain("port_range_start: 50000");
   expect(yaml).toContain("port_range_end: 50019");
   expect(yaml).toContain("node_ip: 100.64.0.1");

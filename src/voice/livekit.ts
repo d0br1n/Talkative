@@ -29,15 +29,16 @@ export function loadOrCreateKeys(path = join(homeDir(), "keys.json")): Keys {
 /**
  * What livekit-server needs so that it and the voice agree. `node_ip` is the address the phone will use.
  * `rtc.ips.includes` keeps the ICE UDP sockets on the bind address alone (without it they open on every
- * interface, LAN and public IPv6 included); the loopback flag lets that address be 127.0.0.1. The ICE TCP
- * port (7881) still listens on every address: livekit has no setting to bind it.
+ * interface, LAN and public IPv6 included); the loopback flag lets that address be 127.0.0.1. ICE over TCP
+ * is off (`tcp_port: 0`): livekit's TCP listener cannot be bound to one address, and the phone reaches us
+ * over Tailscale, which carries UDP even when it relays through DERP.
  */
 export function livekitYaml(keys: Keys, bind: string): string {
   return [
     "port: 7880",
     `bind_addresses: ["${bind}"]`,
     "rtc:",
-    "  tcp_port: 7881",
+    "  tcp_port: 0",
     "  port_range_start: 50000",
     "  port_range_end: 50019",
     `  node_ip: ${bind}`,
