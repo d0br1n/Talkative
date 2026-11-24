@@ -3,6 +3,8 @@
 // told everything. Speech and the agent meet only here.
 import type { AgentToVoice, VoiceToAgent, Verbosity } from "../shared/link.js";
 import type { FromPhone, ToPhone } from "../shared/phone.js";
+import { AgentPhase, type Phase } from "./agent-phase.js";
+import { PendingApprovals } from "./approvals.js";
 import { matchCommand, type Command } from "./commands.js";
 import { DEFAULT_EAR_SETTINGS, Ear, type EarSettings } from "./ear.js";
 import { HeldLines, type Cuttable } from "./held.js";
@@ -39,9 +41,6 @@ export interface VoiceConversationOptions {
   approvalTimeoutMs?: number;
 }
 
-type Approval = Extract<ToPhone, { t: "approval" }>;
-type Phase = "starting" | "ready" | "restarting" | "crashed";
-
 interface Turn extends Cuttable {
   origin: "owner" | "agent";
   collector: SentenceCollector;
@@ -59,8 +58,6 @@ export class VoiceConversation {
   private readonly ear: Ear;
   private readonly mouth: Mouth;
   private readonly verbosity: Verbosity;
-  private readonly now: () => number;
-  private readonly approvalTimeoutMs: number;
 
   private readonly turns = new Map<string, Turn>();
   /** owner turns sent and not ended: the status's `thinking` */
@@ -71,24 +68,22 @@ export class VoiceConversation {
   private sentTurns = 0;
   private linkUp = false;
   private everUp = false;
-  private phase: Phase = "starting";
-  /** our own newConversation restarts the agent: that restart is not announced again */
-  private restartAsked = false;
+  private readonly agentPhase = new AgentPhase();
   private audio = true;
   private mic = true;
   private lines = 0;
   /** what would start speaking while the owner is mid-utterance waits here */
   private readonly gate: HeldLines;
-  private readonly pending = new Map<string, Approval>();
-  private readonly announced = new Set<string>();
+  private readonly approvals: PendingApprovals;
   private lastStatus = "";
   /** transcriptions in the order their utterances ended */
   private hearing: Promise<void> = Promise.resolve();
 
   constructor(private readonly o: VoiceConversationOptions) {
     this.verbosity = o.verbosity ?? "normal";
-    this.now = o.now ?? Date.now;
-    this.approvalTimeoutMs = o.approvalTimeoutMs ?? APPROVAL_TIMEOUT_MS;
+    this.approvals = new PendingApprovals({
+      phone: o.phone, now: o.now ?? Date.now, timeoutMs: o.approvalTimeoutMs ?? APPROVAL_TIMEOUT_MS,
+    });
     this.mouth = new Mouth({
       tts: o.tts,
       speaker: o.speaker,
@@ -162,7 +157,7 @@ export class VoiceConversation {
         this.silenceAll();
         this.mouth.stop();
         if (this.linkUp && this.o.agent.send({ t: "newConversation" })) {
-          this.restartAsked = true;
+          this.agentPhase.askedRestart();
           this.closed.clear();
           this.say(LINES.newConversation);
         } else this.say(LINES.notConnected);
@@ -173,14 +168,14 @@ export class VoiceConversation {
         return;
       case "continue":
         // nothing spoken approves anything: approvals are made in the app
-        this.say(this.pending.size > 0 ? LINES.approveOnPhone : LINES.nothingWaiting);
+        this.say(this.approvals.size > 0 ? LINES.approveOnPhone : LINES.nothingWaiting);
         return;
     }
   }
 
   private sendTurn(text: string): void {
     const turnId = `o-${this.sentTurns + 1}`;
-    const reachable = this.linkUp && this.phase !== "crashed";
+    const reachable = this.linkUp && this.agentPhase.phase !== "crashed";
     if (!reachable || !this.o.agent.send({ t: "turn", turnId, text, verbosity: this.verbosity })) {
       this.say(LINES.notConnected);
       return;
@@ -205,18 +200,18 @@ export class VoiceConversation {
     if (up === this.linkUp) return;
     this.linkUp = up;
     if (up) {
-      this.phase = "ready";
-      this.status();
-      if (this.everUp) this.say(LINES.back);
+      // not ready yet: the agent's state, sent on every welcome, says what it is (and whether it is back)
+      this.agentPhase.linkUp(this.everUp ? "drop" : "first");
       this.everUp = true;
+      this.status();
       return;
     }
+    this.agentPhase.linkDown();
     // the agent cannot finish what was open, and its jobs went with it as far as we can tell
     this.closed.close([...this.turns.keys(), ...this.ownerTurns]);
     this.turns.clear();
     this.ownerTurns.clear();
     this.jobs.clear();
-    this.restartAsked = false;
     this.status();
     this.say(LINES.lost);
   }
@@ -227,7 +222,7 @@ export class VoiceConversation {
       case "hello":
         return;
       case "agent":
-        this.agentState(m.state);
+        this.agentState(m.state, m.detail);
         return;
       case "turnStart":
         // a stop may have silenced it before its start arrived
@@ -263,7 +258,11 @@ export class VoiceConversation {
         if (turn) this.speakUnits(m.turnId, turn, turn.collector.flush());
         this.turns.delete(m.turnId);
         this.ownerTurns.delete(m.turnId);
-        if (!m.ok && m.error) this.o.phone.send({ t: "error", text: m.error });
+        if (!m.ok) {
+          if (m.error) this.o.phone.send({ t: "error", text: m.error });
+          // a failure is never silent: unless the owner cut it, or it said something already
+          if (!turn?.silenced && !turn?.sentences) this.say(LINES.turnFailed);
+        }
         this.status();
         return;
       }
@@ -271,8 +270,7 @@ export class VoiceConversation {
         this.approval(m);
         return;
       case "approvalDone": {
-        const was = this.pending.delete(m.id);
-        this.announced.delete(m.id);
+        const was = this.approvals.done(m.id);
         this.o.phone.send({ t: "approvalDone", id: m.id, allow: m.allow, by: m.by });
         if (was) this.say(m.by === "timeout" ? LINES.timedOut : m.allow ? LINES.approved : LINES.denied);
         return;
@@ -280,32 +278,24 @@ export class VoiceConversation {
     }
   }
 
-  private agentState(state: Phase): void {
-    const was = this.phase;
+  private agentState(state: Phase, detail?: string): void {
     if (state !== "ready") this.closed.clear();
-    this.phase = state;
-    if (state === "restarting" || state === "crashed") {
-      // a restarted coordinator does not end the jobs it dropped
-      this.jobs.clear();
-    }
+    // a restarted coordinator does not end the jobs it dropped
+    if (state === "restarting" || state === "crashed") this.jobs.clear();
+    // only a fresh agent host says starting: nothing there can answer the old approvals
+    if (state === "starting") this.approvals.dropAll();
+    const { line, report } = this.agentPhase.update(state, detail);
     this.status();
-    if (state === "restarting" && was !== "restarting") {
-      if (this.restartAsked) this.restartAsked = false;
-      else this.say(LINES.restarting);
+    if (report) {
+      console.error(`voice: the agent can't start: ${report}`);
+      this.o.phone.send({ t: "error", text: report });
     }
-    if (state === "crashed" && was !== "crashed") this.say(LINES.cantStart);
-    if (state === "ready") this.restartAsked = false;
+    if (line) this.say(line);
   }
 
   private approval(m: Extract<AgentToVoice, { t: "approval" }>): void {
-    // a re-send after a reconnect replaces the entry by id and keeps its deadline
-    const expiresAt = this.pending.get(m.id)?.expiresAt ?? this.now() + this.approvalTimeoutMs;
-    const card: Approval = { t: "approval", id: m.id, tool: m.tool, summary: m.summary, detail: m.detail, expiresAt };
-    this.pending.set(m.id, card);
-    this.o.phone.send(card);
-    if (this.announced.has(m.id)) return;
-    this.announced.add(m.id);
-    this.say(LINES.needApproval);
+    // a re-send after a reconnect replaces the entry by id, keeps its deadline, and is not announced again
+    if (this.approvals.add(m)) this.say(LINES.needApproval);
   }
 
   // ---- the phone ----
@@ -332,7 +322,7 @@ export class VoiceConversation {
       }
       case "decide":
         // it stays pending either way: the agent still holds the request
-        if (this.pending.has(m.id) && !this.o.agent.send({ t: "decide", id: m.id, allow: m.allow })) {
+        if (this.approvals.has(m.id) && !this.o.agent.send({ t: "decide", id: m.id, allow: m.allow })) {
           this.o.phone.send({ t: "error", text: DECIDE_NOT_SENT });
         }
         return;
@@ -341,7 +331,7 @@ export class VoiceConversation {
 
   /** The phone is in the room (or said hello): bring it up to date with the status and every pending approval. */
   onPhoneJoined(): void {
-    for (const card of this.pending.values()) this.o.phone.send(card);
+    this.approvals.resend();
     this.status(true);
   }
 
@@ -398,7 +388,8 @@ export class VoiceConversation {
   }
 
   private status(force = false): void {
-    const agent = !this.linkUp || this.phase === "crashed" ? "down" : this.phase === "ready" ? "ready" : "restarting";
+    const phase = this.agentPhase.phase;
+    const agent = !this.linkUp || phase === "crashed" ? "down" : phase === "ready" ? "ready" : "restarting";
     const s: ToPhone = { t: "status", agent, thinking: this.ownerTurns.size > 0, jobs: this.jobs.size, audio: this.audio };
     const key = JSON.stringify(s);
     if (!force && key === this.lastStatus) return;

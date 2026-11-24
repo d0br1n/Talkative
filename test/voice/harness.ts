@@ -105,7 +105,11 @@ export function rig(o: { connected?: boolean } & Partial<VoiceConversationOption
     ...o,
     ear: { endOfTurnPauseMs: 300, ...o.ear },
   });
-  if (o.connected ?? true) conv.onAgentConnection(true);
+  if (o.connected ?? true) {
+    conv.onAgentConnection(true);
+    // what connectAgent sends on every welcome: the agent's state
+    conv.onAgent({ t: "agent", state: "ready" });
+  }
   const feed = (frame: () => Int16Array, ms: number) => {
     for (let t = 0; t < ms; t += FRAME_MS) conv.onFrame(frame());
   };

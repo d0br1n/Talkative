@@ -12,6 +12,7 @@ export const LINES = {
   approved: "Approved.",
   denied: "Denied.",
   timedOut: "That approval timed out.",
+  turnFailed: "That didn't go through. It's on your screen.",
 } as const;
 
 export type Line = (typeof LINES)[keyof typeof LINES];

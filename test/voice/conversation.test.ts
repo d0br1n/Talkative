@@ -208,6 +208,7 @@ describe("6. the link drops (Review Focus 1)", () => {
     expect(r.spoken()).toEqual([LINES.lost, LINES.notConnected]);
     r.agent.up = true;
     r.conv.onAgentConnection(true);
+    r.agentSays({ t: "agent", state: "ready" });
     await settle();
     expect(r.spoken()).toEqual([LINES.lost, LINES.notConnected, LINES.back]);
     expect(r.phone.last("status")).toEqual({ t: "status", agent: "ready", thinking: false, jobs: 0, audio: true });
@@ -216,6 +217,7 @@ describe("6. the link drops (Review Focus 1)", () => {
   test("no `back` line on the first connection", async () => {
     const r = rig({ connected: false });
     r.conv.onAgentConnection(true);
+    r.agentSays({ t: "agent", state: "ready" });
     await settle();
     expect(r.spoken()).toEqual([]);
     expect(r.phone.last("status")).toMatchObject({ agent: "ready" });
@@ -223,6 +225,7 @@ describe("6. the link drops (Review Focus 1)", () => {
 
   test("restarting and crashed are spoken once each and reset the job count", async () => {
     const r = rig();
+    const quiet = spyOn(console, "error").mockImplementation(() => {});
     r.agentSays({ t: "job", phase: "start", id: "j1", label: "x" });
     r.agentSays({ t: "agent", state: "restarting" }, { t: "agent", state: "restarting" });
     expect(r.phone.last("status")).toMatchObject({ agent: "restarting", jobs: 0 });
@@ -232,7 +235,8 @@ describe("6. the link drops (Review Focus 1)", () => {
     r.agentSays({ t: "agent", state: "ready" });
     expect(r.phone.last("status")).toMatchObject({ agent: "ready" });
     await settle();
-    expect(r.spoken()).toEqual([LINES.restarting, LINES.cantStart]);
+    quiet.mockRestore();
+    expect(r.spoken()).toEqual([LINES.restarting, LINES.cantStart, LINES.back]);
   });
 });
 
@@ -337,7 +341,7 @@ describe("8. approvals in the app (Review Focus 6)", () => {
     expect(r.phone.of("approval").map((m) => m.id)).toEqual(["req-1"]);
     r.agent.up = true;
     r.conv.onAgentConnection(true);
-    r.agentSays(APPROVAL); // connectAgent re-sends pending approvals after the welcome; the deadline stays
+    r.agentSays({ t: "agent", state: "ready" }, APPROVAL); // connectAgent re-sends pending approvals after the welcome; the deadline stays
     await settle();
     expect(r.spoken().filter((l) => l === LINES.needApproval)).toHaveLength(1);
     r.phone.got = [];
@@ -453,6 +457,7 @@ describe("fix round 1", () => {
     r.reply("o-1", "owner", ["Before the drop it is spoken. "], false);
     r.conv.onAgentConnection(false);
     r.conv.onAgentConnection(true);
+    r.agentSays({ t: "agent", state: "ready" });
     const deltas = r.phone.of("delta").length;
     r.agentSays({ t: "delta", turnId: "o-1", block: 0, text: "After the drop it is not. Nor this one. " });
     expect(r.phone.last("status")).toMatchObject({ thinking: false });
@@ -513,6 +518,7 @@ describe("fix round 2: reused turn ids after a drop", () => {
     r.reply("agent-1", "agent", ["The old reply starts here. "], false);
     r.conv.onAgentConnection(false);
     r.conv.onAgentConnection(true);
+    r.agentSays({ t: "agent", state: "ready" });
     r.agentSays({ t: "delta", turnId: "agent-1", block: 0, text: "Old tail is ignored. And more of it. " });
     r.reply("agent-1", "agent", ["The new reply is spoken. "]);
     await settle();
@@ -529,5 +535,141 @@ describe("fix round 2: reused turn ids after a drop", () => {
     r.agentSays({ t: "delta", turnId: "agent-1", block: 0, text: "After the reset it is spoken. " });
     await settle();
     expect(r.spoken()).toContain("After the reset it is spoken.");
+  });
+});
+
+describe("final review fixes", () => {
+  test("a voice that starts while the agent is crashed is not ready, says it can't start once, and shows why", async () => {
+    const r = rig({ connected: false });
+    const errs = spyOn(console, "error").mockImplementation(() => {});
+    r.conv.onAgentConnection(true);
+    expect(r.phone.last("status")!.agent).not.toBe("ready");
+    // the buffered crash and the welcome's state: the same state twice
+    r.agentSays({ t: "agent", state: "crashed", detail: "error: login expired" }, { t: "agent", state: "crashed", detail: "error: login expired" });
+    await settle();
+    const logged = errs.mock.calls.map((c) => c.join(" ")).join("\n");
+    errs.mockRestore();
+    expect(r.phone.last("status")).toMatchObject({ agent: "down" });
+    expect(r.spoken()).toEqual([LINES.cantStart]);
+    expect(r.phone.of("error")).toEqual([{ t: "error", text: "error: login expired" }]);
+    expect(logged).toContain("error: login expired");
+    r.conv.onPhone({ t: "said", text: "hello" });
+    expect(r.agent.of("turn")).toEqual([]);
+  });
+
+  test("the link coming up is not ready: with no state from the agent the voice stays as before the link", async () => {
+    const r = rig({ connected: false });
+    r.conv.onAgentConnection(true);
+    await settle();
+    expect(r.phone.last("status")).toMatchObject({ agent: "restarting" });
+    expect(r.spoken()).toEqual([]);
+  });
+
+  test("after a drop, the link coming back says nothing until the agent's state arrives", async () => {
+    const r = rig();
+    r.conv.onAgentConnection(false);
+    r.conv.onAgentConnection(true);
+    await settle();
+    expect(r.spoken()).toEqual([LINES.lost]);
+    expect(r.phone.last("status")!.agent).not.toBe("ready");
+    r.agentSays({ t: "agent", state: "ready" });
+    await settle();
+    expect(r.spoken()).toEqual([LINES.lost, LINES.back]);
+    expect(r.phone.last("status")).toMatchObject({ agent: "ready" });
+  });
+
+  test("a fresh agent host after a drop (starting, then ready) is back once", async () => {
+    const r = rig();
+    r.conv.onAgentConnection(false);
+    r.conv.onAgentConnection(true);
+    r.agentSays({ t: "agent", state: "starting" }, { t: "agent", state: "ready" }, { t: "agent", state: "ready" });
+    await settle();
+    expect(r.spoken()).toEqual([LINES.lost, LINES.back]);
+  });
+
+  test("crashed to ready says the agent is back; restarting to ready does not", async () => {
+    const r = rig();
+    const quiet = spyOn(console, "error").mockImplementation(() => {});
+    r.agentSays({ t: "agent", state: "restarting" }, { t: "agent", state: "ready" });
+    await settle();
+    expect(r.spoken()).toEqual([LINES.restarting]);
+    r.agentSays({ t: "agent", state: "crashed" }, { t: "agent", state: "ready" });
+    await settle();
+    quiet.mockRestore();
+    expect(r.spoken()).toEqual([LINES.restarting, LINES.cantStart, LINES.back]);
+  });
+
+  test("a failed turn that spoke nothing says so and the phone gets the error", async () => {
+    const r = rig();
+    r.conv.onPhone({ t: "said", text: "hi" });
+    r.agentSays({ t: "turnStart", turnId: "o-1", origin: "owner" }, { t: "turnEnd", turnId: "o-1", ok: false, error: "Invalid API key · Please run /login" });
+    await settle();
+    expect(r.spoken()).toEqual([LINES.turnFailed]);
+    expect(LINES.turnFailed).toBe("That didn't go through. It's on your screen.");
+    expect(r.phone.of("error")).toEqual([{ t: "error", text: "Invalid API key · Please run /login" }]);
+    expect(r.phone.last("status")).toMatchObject({ thinking: false });
+  });
+
+  test("a failed turn that already spoke, or was stopped, adds nothing spoken", async () => {
+    const r = rig();
+    r.conv.onPhone({ t: "said", text: "tell me" });
+    r.reply("o-1", "owner", ["Here is the first part. "], false);
+    r.agentSays({ t: "turnEnd", turnId: "o-1", ok: false, error: "overloaded" });
+    await settle();
+    r.conv.onPhone({ t: "said", text: "again" });
+    r.conv.onPhone({ t: "said", text: "stop" });
+    r.agentSays({ t: "turnStart", turnId: "o-2", origin: "owner" }, { t: "turnEnd", turnId: "o-2", ok: false, error: "interrupted" });
+    await settle();
+    expect(r.spoken()).toEqual(["Here is the first part."]);
+    expect(r.phone.of("error").map((m) => m.text)).toEqual(["overloaded", "interrupted"]);
+  });
+
+  test("a fresh agent host (starting) drops every pending approval without a word", async () => {
+    const r = rig();
+    r.agentSays({ ...APPROVAL, id: "a" }, { ...APPROVAL, id: "b" });
+    await settle();
+    r.conv.onAgentConnection(false);
+    r.conv.onAgentConnection(true);
+    r.phone.got = [];
+    r.agentSays({ t: "agent", state: "starting" });
+    expect(r.phone.of("approvalDone")).toEqual([
+      { t: "approvalDone", id: "a", allow: false, by: "timeout" },
+      { t: "approvalDone", id: "b", allow: false, by: "timeout" },
+    ]);
+    r.agentSays({ t: "agent", state: "ready" });
+    await settle();
+    expect(r.spoken()).toEqual([LINES.needApproval, LINES.needApproval, LINES.lost, LINES.back]);
+    r.phone.got = [];
+    r.conv.onPhone({ t: "hello", protocol: 1 });
+    expect(r.phone.of("approval")).toEqual([]);
+    r.conv.onPhone({ t: "decide", id: "a", allow: true });
+    expect(r.agent.of("decide")).toEqual([]);
+  });
+
+  test("an approval expires on the voice side at its expiresAt (checked on access)", async () => {
+    let clock = 0;
+    const r = rig({ now: () => clock, approvalTimeoutMs: 1000 });
+    r.agentSays(APPROVAL);
+    clock = 999;
+    r.conv.onPhone({ t: "hello", protocol: 1 });
+    expect(r.phone.of("approvalDone")).toEqual([]);
+    clock = 1000;
+    r.phone.got = [];
+    r.conv.onPhone({ t: "hello", protocol: 1 });
+    expect(r.phone.of("approval")).toEqual([]);
+    expect(r.phone.of("approvalDone")).toEqual([{ t: "approvalDone", id: "req-1", allow: false, by: "timeout" }]);
+    r.conv.onPhone({ t: "decide", id: "req-1", allow: true });
+    expect(r.agent.of("decide")).toEqual([]);
+    // the agent's own timeout arriving later is passed on but not spoken again
+    r.agentSays({ t: "approvalDone", id: "req-1", allow: false, by: "timeout" });
+    await settle();
+    expect(r.spoken()).toEqual([LINES.needApproval]);
+  });
+
+  test("an approval expires on the voice side by its timer, with nothing else happening", async () => {
+    const r = rig({ now: Date.now, approvalTimeoutMs: 30 });
+    r.agentSays(APPROVAL);
+    await Bun.sleep(80);
+    expect(r.phone.of("approvalDone")).toEqual([{ t: "approvalDone", id: "req-1", allow: false, by: "timeout" }]);
   });
 });
