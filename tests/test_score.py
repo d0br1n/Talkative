@@ -112,3 +112,38 @@ def test_passes_false_when_only_latency_fails():
     s = summarise(rows_with(wer=0.0, cmd_rate=1.0, p50=1.2))
     assert not s.passes
     assert len(s.reasons) == 1
+
+
+def _cmd_rows(hits_by_command: dict[str, tuple[int, int]]) -> list[ClipResult]:
+    rows = [ClipResult(1, "ordinary", "a b", "a b", 0.1)]
+    for cmd, (hits, total) in hits_by_command.items():
+        for i in range(total):
+            rows.append(ClipResult(2, "command", cmd, cmd if i < hits else "", 0.1))
+    return rows
+
+
+def test_per_command_hits_reported():
+    s = summarise(_cmd_rows({"continue": (10, 10), "stop": (9, 10)}))
+    assert s.command_hits == {"continue": [10, 10], "stop": [9, 10]}
+    assert abs(s.command_rate - 19 / 20) < 1e-9
+
+
+def test_one_weak_command_fails_even_if_pooled_rate_passes():
+    rows = _cmd_rows({"continue": (50, 50), "audio on": (4, 5)})  # pooled 54/55 = 0.98
+    s = summarise(rows)
+    assert s.command_rate >= 0.95
+    assert not s.passes
+    assert any("audio on 4/5" in r for r in s.reasons)
+
+
+def test_all_commands_at_bar_passes():
+    s = summarise(_cmd_rows({"continue": (19, 20), "stop": (19, 20)}))
+    assert s.passes and s.reasons == []
+
+
+def test_memo_field_defaults_and_scope():
+    from bench.score import is_scored_memo
+
+    assert ClipResult(1, "command", "stop", "stop", 0.1).memo == "unknown"
+    assert is_scored_memo("gym-1") and is_scored_memo("transit-2")
+    assert not is_scored_memo("quiet-1")

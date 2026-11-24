@@ -19,9 +19,13 @@ import numpy as np
 
 from bench.card import LINES
 from bench.prepare import LabelledClip, load_clips
-from bench.score import ClipResult, summarise
+from bench.score import ClipResult, is_scored_memo, summarise
 from bench.stt import ENGINES, VOCAB_PROMPT, SttEngine
 from bench.tts import MAX_TTS_FIRST_AUDIO_P50_S, MEASUREMENT, TTS_ENGINES
+
+
+class NoLabelledClips(Exception):
+    """The clips directory holds no clip with a card line id."""
 
 
 def run_stt(engine: SttEngine, clips: list[LabelledClip]) -> list[ClipResult]:
@@ -29,14 +33,14 @@ def run_stt(engine: SttEngine, clips: list[LabelledClip]) -> list[ClipResult]:
     by_id = {line.id: line for line in LINES}
     labelled = [c for c in clips if c.line_id is not None]
     if not labelled:
-        return []
+        raise NoLabelledClips("no labelled clips")
     engine.transcribe(labelled[0].audio, VOCAB_PROMPT)  # warm-up, never timed
     rows = []
     for clip in labelled:
         line = by_id[clip.line_id]
         start = time.perf_counter()
         hyp = engine.transcribe(clip.audio, VOCAB_PROMPT)
-        rows.append(ClipResult(line.id, line.kind, line.text, hyp, time.perf_counter() - start))
+        rows.append(ClipResult(line.id, line.kind, line.text, hyp, time.perf_counter() - start, clip.memo))
     return rows
 
 
@@ -99,6 +103,8 @@ class VramPoller:
 def _failure(exc: BaseException) -> str:
     from bench.stt import ModelMissing
 
+    if isinstance(exc, NoLabelledClips):
+        return f"failed: {exc}"
     if isinstance(exc, ModelMissing):
         return f"failed: ModelMissing: {exc.path}"
     return f"failed: {type(exc).__name__}: {exc}"
@@ -121,6 +127,8 @@ def run_stt_cli(engine: str, clips: Path, out: Path, host: str | None = None) ->
     try:
         all_clips = load_clips(clips)
         data["skipped_unlabelled"] = sum(c.line_id is None for c in all_clips)
+        if not any(c.line_id is not None for c in all_clips):
+            raise NoLabelledClips(f"no labelled clips under {clips}")
         with VramPoller() as vram:
             try:
                 eng = ENGINES[engine]()
@@ -129,7 +137,7 @@ def run_stt_cli(engine: str, clips: Path, out: Path, host: str | None = None) ->
                 rows = run_stt(eng, all_clips)
             finally:
                 data["peak_vram_mb"] = vram.peak_so_far()
-        score = summarise(rows)
+        score = summarise([r for r in rows if is_scored_memo(r.memo)])  # quiet control excluded
         data["rows"] = [asdict(r) for r in rows]
         data.update(asdict(score))
     except Exception as exc:
@@ -143,7 +151,7 @@ def run_stt_cli(engine: str, clips: Path, out: Path, host: str | None = None) ->
 def run_tts_cli(engine: str, out: Path, host: str | None = None) -> Path:
     host = host or socket.gethostname()
     data: dict = {"kind": "tts", "engine": engine, "host": host, "status": "ok",
-                  "measurement": MEASUREMENT, "sentences": []}
+                  "device": "cpu", "measurement": MEASUREMENT, "sentences": []}
     try:
         eng = TTS_ENGINES[engine]()
         eng.load()

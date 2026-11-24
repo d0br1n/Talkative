@@ -50,7 +50,7 @@ class WhisperEngine:
         from faster_whisper import WhisperModel
 
         return WhisperModel(
-            self.size, device=device, compute_type=compute_type,
+            self.size, device=device, compute_type=compute_type, cpu_threads=4,
             download_root=str(WHISPER_ROOT), local_files_only=local_only,
         )
 

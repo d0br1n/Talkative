@@ -9,6 +9,13 @@ mkdir -p "results/$host" docs/bench
 stt=$(uv run python -c "from bench.stt import ENGINES; print(*ENGINES)")
 tts=$(uv run python -c "from bench.tts import TTS_ENGINES; print(*TTS_ENGINES)")
 
+if ! compgen -G "clips/*/manifest.json" > /dev/null; then
+  echo "No clips/*/manifest.json found: skipping the STT runs (TTS still runs)." >&2
+  echo "Record the memos and run: uv run python -m bench.prepare recordings/*.m4a clips/" >&2
+  echo "(see 'Running the benchmark' in docs/bench/CARD.md)" >&2
+  stt=""
+fi
+
 for e in $stt; do
   echo "== stt $e"
   uv run python -m bench.run guard --kind stt --engine "$e" --host "$host" --out "results/$host/$e.json" -- \
