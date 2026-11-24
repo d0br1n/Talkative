@@ -3,15 +3,21 @@
 Only protocol lines go to stdout; logging goes to stderr.
 """
 
-import argparse
-import base64
-import json
 import sys
 
-import numpy as np
+# First action, before any import beyond the standard library: the client uses this marker to
+# tell "the worker started" from "systemd-run itself failed".
+print("worker: starting", file=sys.stderr, flush=True)
 
-from bench import stt as stt_mod
-from bench import tts as tts_mod
+import argparse  # noqa: E402
+import base64  # noqa: E402
+import json  # noqa: E402
+import os  # noqa: E402
+
+import numpy as np  # noqa: E402
+
+from bench import stt as stt_mod  # noqa: E402
+from bench import tts as tts_mod  # noqa: E402
 
 
 def _log(msg: str) -> None:
@@ -42,7 +48,12 @@ def main(argv=None, stdin=None, stdout=None) -> int:
     ap.add_argument("--tts", required=True)
     args = ap.parse_args(argv)
     stdin = stdin or sys.stdin
-    stdout = stdout or sys.stdout
+    if stdout is None:
+        # Native libraries print straight to fd 1: keep a private dup for protocol lines and
+        # point fd 1 and sys.stdout at stderr so nothing else can reach the protocol stream.
+        stdout = os.fdopen(os.dup(1), "w", buffering=1)
+        os.dup2(2, 1)
+        sys.stdout = sys.stderr
 
     stt = stt_mod.ENGINES[args.stt]()
     tts = tts_mod.TTS_ENGINES[args.tts]()
