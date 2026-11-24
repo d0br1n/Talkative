@@ -1,7 +1,8 @@
 """Rule guards for the static landing page in site/.
 
 The brief's "claims you may not make" are enforced here as tests so a copy
-edit cannot quietly break them. Only the standard library is used.
+edit cannot quietly break them. Every site/*.html, site/*.css and site/*.js
+file is scanned, not a fixed list. Only the standard library is used.
 """
 
 import re
@@ -13,17 +14,30 @@ FOOTER_LINE = (
     "Talkative is an independent open-source project "
     "and is not affiliated with Anthropic."
 )
+FAQ_ANTHROPIC_SENTENCE = (
+    "It uses your normal Claude Code login, "
+    "and Talkative is not affiliated with Anthropic."
+)
 VOID = {"meta", "link", "br", "hr", "img", "input", "source", "area", "base", "col", "wbr"}
+# The ASCII art (wordmark and listening mark) is drawn only from these
+# characters, so it can be left out of the copy scans without becoming a
+# place to hide words: test_ascii_art_has_no_words enforces the charset.
+ART_CHARS = set(" \n#%&'*+,-.8:=@`~")
+ART_CONTAINERS = ("wordmark", "hero-mark")
 
 
 def read_site_files():
-    """index.html is required; styles.css and mark.js are skipped until they exist."""
-    files = {"index.html": (SITE / "index.html").read_text(encoding="utf-8")}
-    for name in ("styles.css", "mark.js"):
-        path = SITE / name
-        if path.exists():
-            files[name] = path.read_text(encoding="utf-8")
+    """Every site/*.html, site/*.css and site/*.js, keyed by file name."""
+    files = {}
+    for pattern in ("*.html", "*.css", "*.js"):
+        for path in sorted(SITE.glob(pattern)):
+            files[path.name] = path.read_text(encoding="utf-8")
+    assert "index.html" in files, "site/index.html missing"
     return files
+
+
+def files_of(kind):
+    return {n: t for n, t in read_site_files().items() if n.endswith("." + kind)}
 
 
 class Node:
@@ -76,12 +90,13 @@ def parse(html):
     return t.root
 
 
-def visible_text(node, skip=None):
+def visible_text(node, skip=()):
     """Text a reader sees or hears: no scripts, styles or comments; labels included."""
     out = []
+    skip = skip if isinstance(skip, (list, tuple, set)) else (skip,)
 
     def go(n):
-        if n is skip:
+        if any(n is s for s in skip):
             return
         if n.tag in ("script", "style"):
             return
@@ -89,7 +104,7 @@ def visible_text(node, skip=None):
             out.append(n.attrs.get("content", ""))
         if n.tag == "meta" and (n.attrs.get("property") or "").endswith(":description"):
             out.append(n.attrs.get("content", ""))
-        for key in ("aria-label", "alt", "title", "placeholder"):
+        for key in ("aria-label", "alt", "title", "placeholder", "value"):
             if n.attrs.get(key):
                 out.append(n.attrs[key])
         for c in n.children:
@@ -114,49 +129,158 @@ def find_all(root, tag=None, cls=None):
     ]
 
 
-def test_no_external_requests():
-    for name, text in read_site_files().items():
-        assert not re.search(r"https?://", text, re.I), f"external URL in {name}"
-    assert not find_all(index_tree(), "iframe")
+def art_pres(root):
+    return [
+        pre for pre in find_all(root, "pre")
+        if pre.parent is not None and any(c in pre.parent.classes() for c in ART_CONTAINERS)
+    ]
 
 
-BANNED = [
-    "available now", "download", "completely private", "end-to-end",
-    "revolutionary", "ai-powered", "sub-second", "testimonial", "sidetone",
-    "livekit", "whisper", "sherpa", "windows", "macos",
-]
-
-
-def test_banned_claims_absent():
-    text = visible_text(index_tree()).lower()
-    for term in BANNED:
-        assert term not in text, f"banned term: {term}"
-    assert not re.search(r"\b\d+(\.\d+)?\s?(ms|milliseconds?|seconds?)\b", text, re.I)
-
-
-def faq_item(root):
+def faq_item(root, question):
     for d in find_all(root, "details"):
         summ = [c for c in d.children if isinstance(c, Node) and c.tag == "summary"]
-        if summ and summ[0].text().strip() == "Is it in the App Store?":
+        if summ and summ[0].text().strip() == question:
             return d
     return None
 
 
+# ---------- Copy sources: HTML text, CSS content strings, JS strings ----------
+
+QUOTED = r""""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'"""
+JS_STRING = re.compile(QUOTED + r"|`(?:[^`\\]|\\.)*`", re.S)
+CSS_CONTENT = re.compile(r"\bcontent\s*:\s*([^;}]*)", re.I)
+
+
+def css_strings(css):
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    out = []
+    for decl in CSS_CONTENT.findall(css):
+        out += [s[1:-1] for s in re.findall(QUOTED, decl)]
+    return out
+
+
+def js_strings(js):
+    return [m.group(0)[1:-1] for m in JS_STRING.finditer(js)]
+
+
+def copy_sources(html_skip=lambda root: []):
+    """(source, text) pairs for every piece of copy a reader can meet."""
+    out = []
+    for name, text in read_site_files().items():
+        if name.endswith(".html"):
+            root = parse(text)
+            out.append((name, visible_text(root, skip=art_pres(root) + list(html_skip(root)))))
+        elif name.endswith(".css"):
+            out += [(name + " content", s) for s in css_strings(text)]
+        elif name.endswith(".js"):
+            out += [(name + " string", s) for s in js_strings(text)]
+    return out
+
+
+# ---------- No external requests ----------
+
+EXTERNAL_ANYWHERE = [
+    r"https?://",
+    r"""(?:src|href|action|srcset|poster)\s*=\s*["']?\s*(?:https?:)?//""",
+    r"""url\(\s*["']?(?:https?:)?//""",
+    r"@import",
+]
+JS_BANNED = [
+    r"\bimport\s*\(", r"\bsendBeacon\b", r"\bWebSocket\b", r"\bfetch\s*\(",
+    r"\bXMLHttpRequest\b", r"\blocalStorage\b", r"\bsessionStorage\b",
+    r"\bindexedDB\b", r"\bEventSource\b", r"document\.cookie",
+]
+
+
+def test_no_external_requests():
+    files = read_site_files()
+    for name, text in files.items():
+        for pat in EXTERNAL_ANYWHERE:
+            assert not re.search(pat, text, re.I), f"{name}: matches {pat}"
+        if name.endswith(".js"):
+            for pat in JS_BANNED:
+                assert not re.search(pat, text), f"{name}: uses {pat}"
+    for name, text in files.items():
+        if name.endswith(".html"):
+            assert not find_all(parse(text), "iframe"), name
+            assert not find_all(parse(text), "object"), name
+            assert not find_all(parse(text), "embed"), name
+
+
+def test_mark_js_is_the_only_script_and_local():
+    scripts = []
+    for name, text in files_of("html").items():
+        root = parse(text)
+        for node in root.walk():
+            if node.tag == "script":
+                scripts.append((name, node))
+            for attr in node.attrs:
+                assert not attr.lower().startswith("on"), f"{name}: inline handler {attr}"
+    assert len(scripts) == 1, scripts
+    name, node = scripts[0]
+    assert name == "index.html"
+    assert node.attrs.get("src") == "mark.js"
+    assert not node.text().strip(), "inline script body"
+    assert (SITE / "mark.js").is_file()
+    assert set(files_of("js")) == {"mark.js"}
+
+
+# ---------- Banned claims (brief section 8) ----------
+
+BANNED = [
+    "available now", "download", "coming soon", "completely private",
+    "end-to-end", "end to end", "e2e", "encrypted", "revolutionary",
+    "ai-powered", "powered by", "sub-second", "latency", "instant",
+    "seamless", "magic", "testimonial", "users", "stars", "official",
+    "partner", "endorsed", "sidetone", "livekit", "whisper", "sherpa",
+    "kokoro", "windows",
+]
+BANNED_RE = [
+    (r"\b\d+(\.\d+)?\s?(s|ms|milliseconds?|secs?|seconds?)\b", re.I),
+    (r"\d+\s?%", 0),
+    (r"under a second", re.I),
+    (r"half a second", re.I),
+    (r"real[\s-]?time", re.I),
+    (r"\bmac(os)?\b", re.I),
+    (r"\bHappy\b", 0),  # the project, by name; "happy" the word is fine
+]
+
+
+def test_banned_claims_absent():
+    for source, text in copy_sources():
+        low = text.lower()
+        for term in BANNED:
+            assert term not in low, f"banned term {term!r} in {source}"
+        for pat, flags in BANNED_RE:
+            assert not re.search(pat, text, flags), f"banned pattern {pat!r} in {source}"
+
+
+def test_android_only_in_its_faq_item():
+    root = index_tree()
+    item = faq_item(root, "Does it work on Android?")
+    assert item is not None, "FAQ item 'Does it work on Android?' missing"
+    for source, text in copy_sources(lambda r: [faq_item(r, "Does it work on Android?")]):
+        assert "android" not in text.lower(), f"Android mentioned in {source}"
+
+
 def test_app_store_only_in_faq():
     root = index_tree()
-    item = faq_item(root)
+    item = faq_item(root, "Is it in the App Store?")
     assert item is not None, "FAQ item 'Is it in the App Store?' missing"
     assert "app store" in visible_text(item).lower()
-    assert "app store" not in visible_text(root, skip=item).lower()
+    for source, text in copy_sources(lambda r: [faq_item(r, "Is it in the App Store?")]):
+        assert "app store" not in text.lower(), f"App Store mentioned in {source}"
 
 
 def test_anthropic_mentions_limited():
-    text = visible_text(index_tree())
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    hits = [s for s in sentences if "anthropic" in s.lower()]
-    assert hits, "expected the footer line"
-    for s in hits:
-        assert FOOTER_LINE in s or "not affiliated with Anthropic" in s, s
+    seen = set()
+    for source, text in copy_sources():
+        for s in re.split(r"(?<=[.!?])\s+", text):
+            if "anthropic" in s.lower():
+                s = s.strip()
+                assert s in (FOOTER_LINE, FAQ_ANTHROPIC_SENTENCE), f"{source}: {s}"
+                seen.add(s)
+    assert seen == {FOOTER_LINE, FAQ_ANTHROPIC_SENTENCE}
 
 
 def test_footer_line_verbatim():
@@ -164,11 +288,82 @@ def test_footer_line_verbatim():
     assert footers and FOOTER_LINE in visible_text(footers[0])
 
 
+def test_ascii_art_has_no_words():
+    pres = art_pres(index_tree())
+    assert len(pres) == 2, "expected the wordmark and the listening mark"
+    for pre in pres:
+        extra = set(pre.text()) - ART_CHARS
+        assert not extra, f"ASCII art uses non-art characters {sorted(extra)}"
+
+
+# ---------- Page structure ----------
+
 def test_owner_todos_present():
     html = read_site_files()["index.html"]
     for s in ("TODO(owner): repository URL", "TODO(owner): notify endpoint",
               "TODO(owner): hero photo"):
         assert s in html
+
+
+def test_notify_form_cannot_leak_without_js():
+    root = index_tree()
+    forms = [n for n in root.walk() if "data-notify-form" in n.attrs]
+    assert len(forms) == 1
+    form = forms[0]
+    for n in form.walk():
+        if n.tag in ("input", "select", "textarea", "button", "object", "output"):
+            assert "name" not in n.attrs, f"named field <{n.tag} name=...> in notify form"
+    assert not [n for n in root.walk() if "form" in n.attrs and n.tag != "form"], \
+        "a field joins the form from outside via form="
+    buttons = find_all(form, "button")
+    assert buttons and all("disabled" in b.attrs for b in buttons), "button must ship disabled"
+    assert "placeholder" in visible_text(form).lower()
+    js = read_site_files()["mark.js"]
+    assert re.search(r"\.disabled\s*=\s*false", js), "mark.js must enable the button"
+
+
+def test_hero_says_in_development_before_the_form():
+    root = index_tree()
+    hero = find_all(root, "section", "hero")[0]
+    text = visible_text(hero)
+    assert "In development." in text
+    assert text.index("In development.") < text.index("Email, to follow development")
+
+
+def test_brand_name_has_one_accessible_name_per_width():
+    root = index_tree()
+    header = find_all(root, "header")[0]
+    art = find_all(header, cls="wordmark")
+    plain = find_all(header, cls="wordmark-text")
+    assert len(art) == 1 and len(plain) == 1
+    assert art[0].attrs.get("role") == "img" and art[0].attrs.get("aria-label") == "Talkative"
+    assert plain[0].text().strip() == "Talkative"
+    css = read_site_files()["styles.css"]
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    m = re.search(r"@media \(min-width: 600px\) \{(.*?)\n\}", css, re.S)
+    assert m, "missing @media (min-width: 600px) block"
+    wide = re.sub(r"\s+", " ", m.group(1))
+    outside = re.sub(r"\s+", " ", css[:m.start()] + css[m.end():])
+    assert ".wordmark { display: flex; }" in wide
+    assert ".wordmark-text { display: none; }" in wide
+    assert ".wordmark { display: none; }" in outside
+
+
+def test_headings_draw_hashes_in_css_only():
+    for h2 in find_all(index_tree(), "h2"):
+        assert not h2.text().lstrip().startswith("#"), h2.text()
+    css = read_site_files()["styles.css"]
+    assert re.search(r'h2::before\s*\{[^}]*content:\s*"## "\s*/\s*""', css)
+
+
+def test_infinite_css_animations_are_tied_to_the_bounded_run():
+    css = re.sub(r"/\*.*?\*/", "", read_site_files()["styles.css"], flags=re.S)
+    for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        if re.search(r"animation\s*:[^;]*infinite", body):
+            assert "is-listening" in sel, f"unbounded animation on {sel.strip()}"
+    js = read_site_files()["mark.js"]
+    assert "MAX_MS = 5000" in js and "IntersectionObserver" in js
+    assert "prefers-reduced-motion: reduce" in js
 
 
 def test_transcript_is_short_and_marked():
@@ -201,7 +396,7 @@ def test_diagrams_fit_a_phone_and_have_list_equivalents():
     for ident in ("diagram-split", "diagram-local"):
         box = next(n for n in root.walk() if n.attrs.get("id") == ident)
         pre = find_all(box, "pre")[0]
-        assert max(len(line) for line in pre.text().splitlines()) <= 36
+        assert max(len(line) for line in pre.text().splitlines()) <= 34
         assert find_all(box, "h3") and find_all(box, "ol")
     buttons = find_all(root, "button")
     toggles = {b.attrs.get("data-diagram"): b for b in buttons if b.attrs.get("data-diagram")}
@@ -236,13 +431,13 @@ def test_document_basics():
     assert any(m.get("name") == "color-scheme" and m.get("content") == "light dark" for m in metas)
 
 
+# ---------- Self-checks of the helpers ----------
+
 def test_visible_text_includes_meta_description():
     root = parse('<html><head><meta name="description" content="Available now, 3 seconds"></head></html>')
     assert "available now" in visible_text(root).lower()
 
 
-def test_mark_js_makes_no_network_or_storage_calls():
-    js = read_site_files().get("mark.js")
-    assert js is not None, "site/mark.js missing"
-    for banned in ("http", "fetch(", "XMLHttpRequest", "localStorage"):
-        assert banned not in js, f"mark.js uses {banned}"
+def test_string_extractors():
+    assert css_strings('a::before { content: "x" / ""; } /* content: "no" */') == ["x", ""]
+    assert js_strings("""var a = 'it\\'s', b = "q", c = `t`;""") == ["it\\'s", "q", "t"]
