@@ -8,3 +8,4 @@ clips/
 results/
 node_modules/
 events.jsonl
+events*.jsonl
