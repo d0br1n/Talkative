@@ -1,0 +1,538 @@
+/* Talkative landing page: "full terminal" look.
+   Light mode is an amber printout; dark mode is a phosphor monitor.
+   The theme follows prefers-color-scheme only. Nothing here loads from
+   another host. Contrast ratios for every token are listed in the
+   site README. */
+
+/* ---------- Fonts (self-hosted; system monospace until they exist) ---------- */
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/JetBrainsMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------- Colour tokens ---------- */
+
+/* Light: amber printout. No glow, no overlays. */
+:root {
+  color-scheme: light dark;
+
+  --bg: #F5EEE0;
+  --text: #1B1409;
+  --accent: #A85200;
+  --muted: #6E5B3E;
+  --border: #8F7A5C;
+
+  --glow: none;          /* headings */
+  --glow-art: none;      /* ASCII wordmark and mark */
+  --glow-body: none;     /* body text */
+
+  --font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Dark: phosphor monitor. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0C0A07;
+    --text: #FFE2A8;
+    --accent: #FFC453;
+    --muted: #D4B888;
+    --border: #A88E60;
+
+    /* The branding glow, verbatim. */
+    --glow: 0 0 2px rgba(255,214,130,0.95), 0 0 7px rgba(255,170,40,0.80), 0 0 18px rgba(255,130,10,0.55), 0 0 42px rgba(255,110,0,0.35);
+    /* The same glow in em, so it keeps the branding's proportions at any
+       size: the branding draws the art at 12px, so 2px = 0.1667em and so on. */
+    --glow-art: 0 0 0.1667em rgba(255,214,130,0.95), 0 0 0.5833em rgba(255,170,40,0.80), 0 0 1.5em rgba(255,130,10,0.55), 0 0 3.5em rgba(255,110,0,0.35);
+    /* Body text: at most a faint 1px glow, so it stays sharp. */
+    --glow-body: 0 0 1px rgba(255,196,83,0.35);
+  }
+}
+
+/* ---------- Base ---------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.6;
+  text-shadow: var(--glow-body);
+  overflow-wrap: break-word;
+}
+
+@media (min-width: 48em) {
+  body {
+    font-size: 1.0625rem;
+  }
+}
+
+/* Dark-only effects. The radial glow sits in the page background behind
+   the header and hero (values from the branding). The scanlines and the
+   vignette are fixed overlays that ignore the pointer. The vignette is
+   much lighter than the branding's 0.6: at 0.6 it would drop text near
+   the viewport corners below WCAG AA. */
+@media (prefers-color-scheme: dark) {
+  body {
+    background:
+      radial-gradient(ellipse 100% 640px at 50% 280px, rgba(255,150,25,0.11) 0%, rgba(255,150,25,0) 62%) no-repeat,
+      var(--bg);
+  }
+
+  body::before,
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+  }
+
+  /* Scanlines: 1px dark, 2px clear. */
+  body::before {
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px, rgba(0,0,0,0) 1px, rgba(0,0,0,0) 3px);
+  }
+
+  /* Vignette. */
+  body::after {
+    background: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 52%, rgba(0,0,0,0.2) 100%);
+  }
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg);
+  text-shadow: none;
+}
+
+/* ---------- Layout: one column, 70ch measure, 16px gutters ---------- */
+
+main,
+footer {
+  box-sizing: content-box;
+  max-width: 70ch;
+  margin-inline: auto;
+  padding-inline: 16px;
+}
+
+section {
+  margin-top: 3.5rem;
+}
+
+p,
+ul,
+ol {
+  margin: 0 0 1rem;
+}
+
+/* ---------- Headings ---------- */
+
+h1,
+h2,
+h3 {
+  margin: 0 0 1rem;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+h1 {
+  font-size: clamp(1.375rem, 1.05rem + 1.4vw, 2rem);
+  color: var(--accent);
+  text-shadow: var(--glow);
+}
+
+h2 {
+  font-size: 1.25rem;
+  color: var(--accent);
+  text-shadow: var(--glow);
+}
+
+h3 {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+/* ---------- Links and buttons ---------- */
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Buttons read as [ label ]; the brackets are in the markup. Hover and
+   the pressed toggle use inverse video. */
+.button,
+button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.5rem 0.25rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:hover,
+button:hover,
+button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--bg);
+  text-shadow: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* ---------- Skip link and screen-reader-only ---------- */
+
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 16px;
+  z-index: 200;
+  padding: 0.5rem 0.75rem;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+  text-shadow: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- ASCII art ----------
+   line-height 1 and letter-spacing 0, as in the branding, or the art
+   breaks. Widths assume a monospace advance of 0.6em (JetBrains Mono). */
+
+pre {
+  margin: 0;
+  font: inherit;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: pre;
+}
+
+/* Clip, never scroll, if a user minimum font size ever inflates the art. */
+.wordmark,
+.hero-mark {
+  display: flex;
+  justify-content: center;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+.site-header {
+  padding: 2.5rem 16px 1rem;
+}
+
+/* Wordmark: 135 columns. At 0.62vw it is 135 x 0.6 x 0.62vw = 50.2vw wide.
+   At 360px the 3px floor applies: 243px, inside the 328px column. */
+.wordmark pre {
+  font-size: clamp(3px, 0.62vw, 9px);
+  color: var(--text);
+  text-shadow: var(--glow-art);
+}
+
+/* Mark: 34 columns, so 34 x 0.6 x 2.4vw = 49vw wide; 176px at 360px. */
+.hero-mark {
+  margin: 2.5rem 0;
+  padding-block: 1rem;
+}
+
+.hero-mark pre {
+  font-size: clamp(6px, 2.4vw, 14px);
+  color: var(--accent);
+  text-shadow: var(--glow-art);
+}
+
+/* The phosphor flicker from the branding. Dark only, as in the branding:
+   the light lockup does not flicker. */
+@keyframes phosphor {
+  0%, 100% { opacity: 1; }
+  44% { opacity: .94; }
+  48% { opacity: .99; }
+  52% { opacity: .91; }
+  56% { opacity: 1; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .hero-mark pre {
+    animation: phosphor 5.5s ease-in-out infinite;
+  }
+}
+
+/* ---------- Hero ---------- */
+
+.hero {
+  margin-top: 1.5rem;
+}
+
+.subhead {
+  font-size: 1.0625rem;
+}
+
+.cta {
+  display: grid;
+  gap: 1.5rem;
+  justify-items: start;
+}
+
+.cta form {
+  display: grid;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.cta label {
+  font-weight: 700;
+}
+
+input[type="email"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  caret-color: var(--accent);
+  font: inherit;
+}
+
+input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+@media (min-width: 36em) {
+  .cta form {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 1rem;
+  }
+
+  .cta form > :not(input):not(button) {
+    grid-column: 1 / -1;
+  }
+}
+
+.cta p {
+  margin: 0;
+}
+
+.form-note,
+.label {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* ---------- Transcript ---------- */
+
+.transcript {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.transcript li + li {
+  margin-top: 0.5rem;
+}
+
+.prompt {
+  color: var(--accent);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---------- Cards ---------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+}
+
+.card {
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+
+.card h3 {
+  margin-bottom: 0.5rem;
+}
+
+.card p {
+  margin: 0;
+}
+
+/* ---------- How it works ---------- */
+
+.toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.diagram {
+  margin-bottom: 1.5rem;
+}
+
+/* Diagrams: 34 columns = 20.4em. Since 20.4 / 21 x (100vw - 40px) is always
+   under 100vw - 32px, they fit the column at any width. At 360px the 15px
+   cap applies: 306px wide, inside the 328px column. */
+.diagram [role="img"] {
+  overflow-x: auto;
+}
+
+.diagram pre {
+  font-size: clamp(9px, calc((100vw - 40px) / 21), 15px);
+  color: var(--text);
+}
+
+/* ---------- Lists ---------- */
+
+section ul {
+  padding-left: 2ch;
+  list-style-type: square;
+  list-style-type: "- ";
+}
+
+/* ---------- Status and FAQ ---------- */
+
+.status {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+details {
+  border-top: 1px solid var(--border);
+}
+
+details:last-of-type {
+  border-bottom: 1px solid var(--border);
+}
+
+summary {
+  display: block;
+  min-height: 44px;
+  padding: 0.625rem 0;
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary::before {
+  content: "[+] ";
+  content: "[+] " / "";
+  color: var(--accent);
+}
+
+details[open] > summary::before {
+  content: "[-] ";
+  content: "[-] " / "";
+}
+
+details > p {
+  padding-left: 4ch;
+}
+
+/* ---------- Footer ---------- */
+
+footer {
+  margin-top: 4rem;
+  padding-block: 2rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+footer p {
+  margin: 0 0 0.5rem;
+}
+
+/* ---------- Motion and forced colours ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-mark pre {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (forced-colors: active) {
+  body::before,
+  body::after {
+    display: none;
+  }
+
+  * {
+    text-shadow: none !important;
+  }
+}
