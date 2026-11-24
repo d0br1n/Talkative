@@ -1,0 +1,10 @@
+{"type": "system", "subtype": "init", "session_id": "sess-1", "model": "sonnet"}
+{"fake": "await-user"}
+{"type": "system", "subtype": "background_tasks_changed", "tasks": [{"task_id": "bygb6cpif", "task_type": "local_bash", "description": "Sleep 90s then print JOB-DONE"}]}
+{"type": "system", "subtype": "task_started", "task_id": "bygb6cpif", "description": "Sleep 90s then print JOB-DONE", "task_type": "local_bash", "is_backgrounded": true}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "started"}]}}
+{"type": "result", "subtype": "success", "is_error": false, "result": "done", "session_id": "sess-1"}
+{"type": "system", "subtype": "task_notification", "task_id": "bygb6cpif", "status": "completed", "summary": "Background command \"Sleep 90s then print JOB-DONE\" completed (exit code 0)"}
+{"type": "system", "subtype": "background_tasks_changed", "tasks": []}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "The background job has finished."}]}}
+{"type": "result", "subtype": "success", "is_error": false, "result": "done", "session_id": "sess-1"}
