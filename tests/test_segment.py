@@ -1,6 +1,10 @@
 import json
+import shutil
+import subprocess
+from pathlib import Path
 
 import numpy as np
+import pytest
 
 from bench import prepare as prepare_mod
 from bench.segment import segments_from_probs
@@ -17,7 +21,7 @@ def test_short_gap_does_not_split():
 
 
 def test_short_blip_dropped():
-    p = [0.1] * 30 + [0.9] * 5 + [0.1] * 30  # 150 ms of "speech": a clank
+    p = [0.1] * 30 + [0.9] * 4 + [0.1] * 30  # 120 ms of "speech": a clank
     assert segments_from_probs(p, 30) == []
 
 
@@ -64,3 +68,30 @@ def test_exact_count_labels_and_load_clips(tmp_path, monkeypatch):
     assert len(clips) == 30
     assert clips[0].memo == "take2" and clips[0].line_id == 1
     assert clips[0].audio.dtype == np.float32 and clips[0].audio.ndim == 1
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+@pytest.mark.skipif(not prepare_mod.VAD_MODEL.exists(), reason="models/silero_vad.onnx missing")
+def test_one_word_command_survives_real_prepare(tmp_path):
+    sil = tmp_path / "sil.wav"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "2", str(sil)],
+        check=True,
+    )
+    sentence, stop = FIXTURES / "sentence.wav", FIXTURES / "stop.wav"
+    parts = [sentence, sil, stop, sil, sentence]
+    memo = tmp_path / "memo.wav"
+    cmd = ["ffmpeg", "-v", "error"]
+    for part in parts:
+        cmd += ["-i", str(part)]
+    inputs = "".join(f"[{i}:a]" for i in range(len(parts)))
+    cmd += ["-filter_complex", f"{inputs}concat=n={len(parts)}:v=0:a=1[o]", "-map", "[o]",
+            "-ar", "16000", "-ac", "1", str(memo)]
+    subprocess.run(cmd, check=True)
+
+    result = prepare_mod.prepare(memo, tmp_path / "clips")
+
+    assert result.count == 3

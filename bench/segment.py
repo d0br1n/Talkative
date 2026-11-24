@@ -8,7 +8,7 @@ def segments_from_probs(
     frame_ms: int,
     threshold: float = 0.5,
     min_silence_ms: int = 800,
-    min_speech_ms: int = 300,
+    min_speech_ms: int = 150,
 ) -> list[tuple[int, int]]:
     """Return (start_ms, end_ms) utterances.
 
