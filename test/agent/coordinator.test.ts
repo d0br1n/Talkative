@@ -137,6 +137,26 @@ describe("restarts", () => {
     expect(readLog(log).filter((e) => e.args)[1]!.args!.slice(-2)).toEqual(["--resume", "sess-1"]);
   });
 
+  test("a crash loop shows no ready between its crashes", async () => {
+    const { c, out } = make("crash-on-start", { sleep: async () => {} });
+    c.start();
+    await until(() => out.filter((m) => m.t === "agent" && m.state === "crashed").length >= 3, 8000);
+    c.stop();
+    const states = out.filter((m) => m.t === "agent").map((m) => (m as { state: string }).state);
+    const first = states.indexOf("crashed");
+    expect(states.slice(first)).not.toContain("ready");
+  });
+
+  test("after a crash, ready waits for the new process's first line", async () => {
+    const { c, out } = make("crash-after-init", { sleep: async () => {} });
+    c.start();
+    await until(() => has(out, { t: "agent", state: "crashed" }));
+    c.stop();
+    const states = out.filter((m) => m.t === "agent").map((m) => (m as { state: string }).state);
+    // the first spawn is ready at once; each retry is ready only once its init line arrives
+    expect(states.slice(0, 4)).toEqual(["starting", "ready", "restarting", "ready"]);
+  });
+
   test("repeated start failures emit crashed with the last stderr line", async () => {
     const { c, out } = make("crash-on-start");
     c.start();

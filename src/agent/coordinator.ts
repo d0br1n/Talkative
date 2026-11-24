@@ -150,9 +150,12 @@ export class Coordinator {
     const args = claudeArgs({ model: this.model, effort: this.effort, resume: this.session ?? undefined });
     const p = this.spawn(args, this.cwd);
     this.cur = p;
-    // claude on stream-json prints nothing, not even init, until its first user message: running is ready
-    this.emit({ t: "agent", state: "ready" });
-    const drained = this.read(p);
+    // claude on stream-json prints nothing, not even init, until its first user message, so running is
+    // ready. After a failure, though, ready waits for the process to say something: a crash loop
+    // (an expired login, a bad flag) must not flash ready between its crashes.
+    const healthy = this.supervisor.failureCount === 0;
+    if (healthy) this.emit({ t: "agent", state: "ready" });
+    const drained = this.read(p, healthy);
     return {
       write: (o) => p.write(o),
       lines: p.lines,
@@ -162,10 +165,14 @@ export class Coordinator {
     };
   }
 
-  private async read(p: ClaudeProcess): Promise<void> {
+  private async read(p: ClaudeProcess, announced: boolean): Promise<void> {
     try {
       for await (const ev of p.lines) {
         if (this.cur !== p) continue;
+        if (!announced) {
+          announced = true;
+          this.emit({ t: "agent", state: "ready" });
+        }
         try {
           this.handle(ev);
         } catch (err) {
