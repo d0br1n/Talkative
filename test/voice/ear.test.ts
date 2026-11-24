@@ -114,3 +114,78 @@ describe("barge-in", () => {
     expect(events).not.toContain("barge");
   });
 });
+
+describe("barge-in dips", () => {
+  const quiet = () => silence();
+  test("a dip under bargeInGapMs keeps the count", () => {
+    const { ear, events, feed } = rig();
+    ear.speaking = true;
+    feed(() => tone(0.3), 300);
+    feed(quiet, 100);
+    feed(() => tone(0.3), 100);
+    expect(events.filter((e) => e === "barge")).toHaveLength(1);
+  });
+  test("a dip of bargeInGapMs or more resets the count", () => {
+    const { ear, events, feed } = rig();
+    ear.speaking = true;
+    feed(() => tone(0.3), 300);
+    feed(quiet, 200);
+    feed(() => tone(0.3), 300);
+    expect(events).not.toContain("barge");
+    feed(() => tone(0.3), 100);
+    expect(events.filter((e) => e === "barge")).toHaveLength(1);
+  });
+  test("speaking false then true re-arms the barge-in", () => {
+    const { ear, events, feed } = rig();
+    ear.speaking = true;
+    feed(() => tone(0.3), 440);
+    ear.speaking = false;
+    ear.speaking = true;
+    feed(() => tone(0.3), 440);
+    expect(events.filter((e) => e === "barge")).toHaveLength(2);
+  });
+});
+
+describe("reset, odd frame sizes and the length cap", () => {
+  test("reset drops a half recorded utterance", () => {
+    const { ear, events, feed } = rig();
+    feed(() => tone(0.3), 600);
+    ear.reset();
+    feed(silence, 3000);
+    expect(events).toEqual(["start"]);
+  });
+  test("frames not divisible by three keep every sample", () => {
+    let pushed = 0;
+    let pushedAtEnd = 0;
+    const got: Int16Array[] = [];
+    const ear = new Ear({
+      ...DEFAULT_EAR_SETTINGS,
+      onUtterance: (pcm) => { got.push(pcm); pushedAtEnd = pushed; },
+      onSpeechStart: () => {},
+      onBargeIn: () => {},
+    });
+    const one = tone(0.3);
+    const chunk = (src: Int16Array) => { const f = src.subarray(0, 1000); pushed += f.length; ear.push(f); };
+    for (let i = 0; i < 48; i++) chunk(one.length >= 1000 ? one : new Int16Array(1000).fill(8000));
+    for (let i = 0; i < 80; i++) chunk(new Int16Array(1000));
+    expect(got).toHaveLength(1);
+    // all samples but the carried remainder (0-2) arrive at 1/3 the count
+    expect(pushedAtEnd - got[0]!.length * 3).toBeLessThan(3);
+    expect(pushedAtEnd - got[0]!.length * 3).toBeGreaterThanOrEqual(0);
+  });
+  test("a room that never goes quiet is cut at maxUtteranceMs and delivered", () => {
+    const { events, utterances, feed } = rig({ maxUtteranceMs: 2000 });
+    feed(() => tone(0.3), 2100);
+    expect(events.filter((e) => e === "utterance")).toHaveLength(1);
+    expect(utterances[0]!.length).toBeLessThanOrEqual(16000 * 2.1);
+    expect(utterances[0]!.length).toBeGreaterThanOrEqual(16000 * 2);
+  });
+  test("a forced end is gated by minSpeechPeak like any other", () => {
+    const { events, feed } = rig({ maxUtteranceMs: 2000 });
+    feed(() => tone(0.06), 2500);
+    expect(events.filter((e) => e === "utterance")).toHaveLength(0);
+  });
+  test("default maxUtteranceMs is 30 s", () => {
+    expect(DEFAULT_EAR_SETTINGS.maxUtteranceMs).toBe(30000);
+  });
+});

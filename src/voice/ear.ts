@@ -27,6 +27,8 @@ export interface EarSettings {
   speechLevel: number;
   /** how long the level must stay up before this counts as speech */
   speechMs: number;
+  /** a recording this long is ended and delivered, so a room that never goes quiet cannot grow the buffer for ever */
+  maxUtteranceMs: number;
   /** speech while the voice is speaking triggers a barge-in */
   interruptOnSpeech: boolean;
 }
@@ -40,6 +42,7 @@ export const DEFAULT_EAR_SETTINGS: EarSettings = {
   minSpeechPeak: 0.15,
   speechLevel: 0.02,
   speechMs: 50,
+  maxUtteranceMs: 30_000,
   interruptOnSpeech: true,
 };
 
@@ -59,6 +62,7 @@ export class Ear {
   private loudMs = 0;
   private quietMs = 0;
   private peak = 0;
+  private recordedMs = 0;
   private bargeMs = 0;
   private bargeQuietMs = 0;
   private barged = false;
@@ -102,6 +106,7 @@ export class Ear {
     this.loudMs = 0;
     this.quietMs = 0;
     this.peak = 0;
+    this.recordedMs = 0;
     this.bargeMs = 0;
     this.bargeQuietMs = 0;
     this.barged = false;
@@ -147,14 +152,16 @@ export class Ear {
       this.preRollSamples = 0;
       this.quietMs = 0;
       this.peak = heard;
+      this.recordedMs = (this.recording.reduce((n, b) => n + b.length, 0) / RATE) * 1000;
       o.onSpeechStart();
       return;
     }
 
     this.recording.push(frame);
     this.peak = Math.max(this.peak, heard);
+    this.recordedMs += ms;
     this.quietMs = loud ? 0 : this.quietMs + ms;
-    if (this.quietMs < o.endOfTurnPauseMs) return;
+    if (this.quietMs < o.endOfTurnPauseMs && this.recordedMs < o.maxUtteranceMs) return;
     this.finish();
   }
 
@@ -166,6 +173,7 @@ export class Ear {
     this.loudMs = 0;
     this.quietMs = 0;
     this.peak = 0;
+    this.recordedMs = 0;
     this.barged = false;
     this.bargeMs = 0;
     this.bargeQuietMs = 0;

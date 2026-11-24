@@ -51,3 +51,39 @@ describe("SentenceCollector", () => {
     expect(c.push(" maybe it is. ")).toEqual(["well, it is...", "maybe it is."]);
   });
 });
+
+import { speakable } from "../../src/voice/speakable.js";
+
+describe("SentenceCollector with fences, tables and abbreviations", () => {
+  test("a fenced block split across deltas is one unit", () => {
+    const c = new SentenceCollector();
+    const units = [
+      ...c.push("Done.\n```ts\n"), ...c.push("x()\n"), ...c.push("```\nAll good."), ...c.flush(),
+    ];
+    expect(units.map((u) => speakable(u).speak)).toEqual(["Done.", "It's on your screen.", "All good."]);
+  });
+  test("a fence marker split across deltas still works", () => {
+    const c = new SentenceCollector();
+    const units = [...c.push("Look.\n`"), ...c.push("``\nfoo. bar.\n``"), ...c.push("`\nOk then."), ...c.flush()];
+    expect(units.map((u) => speakable(u).speak)).toEqual(["Look.", "It's on your screen.", "Ok then."]);
+  });
+  test("an unclosed fence comes out at flush", () => {
+    const c = new SentenceCollector(10);
+    expect(c.push("```\nsome code that is long enough to pass the limit\n")).toEqual([]);
+    expect(c.flush().map((u) => speakable(u).speak)).toEqual(["It's on your screen."]);
+  });
+  test("a table split across deltas is one unit", () => {
+    const c = new SentenceCollector();
+    const units = [...c.push("| a | b |\n|---"), ...c.push("|---|\n| 1 | 2 |\n"), ...c.push("Next up here.\n"), ...c.flush()];
+    expect(units.map((u) => speakable(u).speak)).toEqual(["It's on your screen.", "Next up here."]);
+    expect(units[0]!.split("\n")).toHaveLength(3);
+  });
+  test("no cut after an abbreviation", () => {
+    const a = new SentenceCollector();
+    expect([...a.push("Use e.g. a fast model. Then stop."), ...a.flush()]).toEqual(["Use e.g. a fast model.", "Then stop."]);
+    const b = new SentenceCollector();
+    expect([...b.push("That is i.e. the same. Done."), ...b.flush()]).toEqual(["That is i.e. the same.", "Done."]);
+    const d = new SentenceCollector();
+    expect([...d.push("Ask Dr. Smith about it now. Thanks."), ...d.flush()]).toEqual(["Ask Dr. Smith about it now.", "Thanks."]);
+  });
+});

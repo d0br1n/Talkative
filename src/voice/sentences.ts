@@ -10,7 +10,15 @@
  * Splitting too eagerly costs a small pause. Splitting too late holds the
  * audio back. This errs toward splitting, and never waits for punctuation
  * that may not arrive.
+ *
+ * Contract with speakable(): a fenced code block (opening \`\`\` or ~~~ line
+ * through its matching closing fence) comes out as ONE unit, when the fence
+ * closes (or from flush() if it never does), and a run of consecutive table
+ * rows (lines starting with "|") comes out as one unit, once a non-table line
+ * arrives (or from flush()). Callers apply speakable() to each output unit.
  */
+const FENCE = /^\s*(```|~~~)/;
+const ABBREVIATION = /(^|[^\p{L}])(e\.g|i\.e|etc|vs|dr|mr|mrs|ms|st|approx|incl)\.$/iu;
 const CLOSERS = `.!?"')]`;
 
 export class SentenceCollector {
@@ -23,14 +31,14 @@ export class SentenceCollector {
     this.buffer += text;
     const out: string[] = [];
     for (;;) {
-      const at = this.boundary();
+      const at = this.block() ?? this.boundary();
       if (at < 0) break;
       const sentence = this.buffer.slice(0, at).trim();
       this.buffer = this.buffer.slice(at);
       if (sentence) out.push(sentence);
     }
     // a long run with no punctuation at all must not hold the audio back
-    while (this.buffer.length > this.maxChars) {
+    while (this.buffer.length > this.maxChars && !this.pendingBlock()) {
       const space = this.buffer.lastIndexOf(" ", this.maxChars);
       const at = space > 0 ? space : this.maxChars;
       const chunk = this.buffer.slice(0, at).trim();
@@ -47,17 +55,63 @@ export class SentenceCollector {
     return rest ? [rest] : [];
   }
 
+  /** Whether the buffer starts a fenced block or table that is not complete yet. */
+  private pendingBlock(): boolean {
+    return FENCE.test(this.buffer) || /^\s*\|/.test(this.buffer);
+  }
+
+  /**
+   * The end of a leading fenced block or table run: an index when it is
+   * complete, -1 while it waits, null when the buffer does not start one.
+   */
+  private block(): number | null {
+    const lead = this.buffer.length - this.buffer.trimStart().length;
+    const text = this.buffer.slice(lead);
+    if (FENCE.test(text)) {
+      const open = text.indexOf("\n");
+      if (open < 0) return -1;
+      const marker = FENCE.exec(text)![1]!;
+      let at = open + 1;
+      while (at < text.length) {
+        const eol = text.indexOf("\n", at);
+        if (eol < 0) return -1;
+        if (text.slice(at, eol).trimStart().startsWith(marker)) return lead + eol + 1;
+        at = eol + 1;
+      }
+      return -1;
+    }
+    if (text.startsWith("|")) {
+      let at = 0;
+      for (;;) {
+        const eol = text.indexOf("\n", at);
+        const line = text.slice(at, eol < 0 ? undefined : eol);
+        if (eol < 0) return line.trim() === "" || line.startsWith("|") ? -1 : lead + at;
+        if (!line.trimStart().startsWith("|")) return lead + at;
+        at = eol + 1;
+      }
+    }
+    return null;
+  }
+
+  /** Whether the text after a newline starts a fence or a table row (or may yet). */
+  private startsBlock(rest: string): boolean {
+    const t = rest.trimStart();
+    return t.startsWith("|") || FENCE.test(t) || (t.length > 0 && t.length < 3 && ("```".startsWith(t) || "~~~".startsWith(t)));
+  }
+
   /** The index one past the end of the first sentence, or -1 while it is not certain. */
   private boundary(): number {
     for (let i = 0; i < this.buffer.length; i++) {
       const ch = this.buffer[i] as string;
       if (ch === "\n") {
-        if (short(this.buffer.slice(0, i))) continue;
+        // a fence or a table starts a unit of its own, however short the text before it
+        if (short(this.buffer.slice(0, i)) && !this.startsBlock(this.buffer.slice(i + 1))) continue;
         return i + 1;
       }
       if (ch !== "." && ch !== "!" && ch !== "?") continue;
       // 3.5 and 1.2.3 are numbers, not the ends of sentences
       if (ch === "." && /\d/.test(this.buffer[i - 1] ?? "") && /\d/.test(this.buffer[i + 1] ?? "")) continue;
+      if (ch === "." && ABBREVIATION.test(this.buffer.slice(0, i + 1))) continue;
       let j = i + 1;
       while (j < this.buffer.length && CLOSERS.includes(this.buffer[j] as string)) j++;
       // the punctuation is the last thing here: more text may still make it a number or an ellipsis

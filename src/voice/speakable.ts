@@ -1,8 +1,19 @@
 const NOTE = "It's on your screen.";
 
-/** A token that is part of a path or a command: has `/`, `\`, a backtick, or starts with `--`. */
+/**
+ * A path has a path shape: a leading `/`, `./`, `../` or `~/`, or two or more
+ * `/`-separated segments whose last has a file extension. "and/or" is not one.
+ */
+function isPath(token: string): boolean {
+  const t = token.replace(/[.,;:!?)\]]+$/, "");
+  if (/^(\/|\.\/|\.\.\/|~\/)/.test(t)) return true;
+  const parts = t.split("/");
+  return parts.length >= 2 && parts.every(Boolean) && /\.[A-Za-z0-9]{1,8}$/.test(parts[parts.length - 1]!);
+}
+
+/** A token that is part of a path or a command: a path, a backslash or backtick, or a `--flag`. */
 function isCodeToken(token: string): boolean {
-  return /[\/\\`]/.test(token) || token.startsWith("--");
+  return isPath(token) || /[\\`]/.test(token) || token.startsWith("--");
 }
 
 /** At least 60% of the non-space characters sit in backtick spans or path/command tokens. */
@@ -42,6 +53,7 @@ export function speakable(blockText: string): { speak: string; removed: number }
     const header = line.includes("|") && isSeparator(lines[i + 1] ?? "");
     if (/^\s*(```|~~~)/.test(line)) {
       inFence = !inFence;
+      inTable = false;
       drop();
       continue;
     }

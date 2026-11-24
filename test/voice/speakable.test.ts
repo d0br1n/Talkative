@@ -30,4 +30,15 @@ describe("speakable", () => {
   test("separate runs each get one note; blank lines do not split a run", () => {
     expect(speakable("```\na\n```\n\n```\nb\n```\nOk.\n```\nc\n```")).toEqual({ speak: `${NOTE} Ok. ${NOTE}`, removed: 2 });
   });
+  test("and/or and yes/no are not paths", () => {
+    const text = "Use and/or here, yes/no.";
+    expect(speakable(text)).toEqual({ speak: text, removed: 0 });
+  });
+  test("real paths are still removed", () => {
+    expect(speakable("see src/voice/ear.ts and ./run.sh")).toEqual({ speak: NOTE, removed: 1 });
+    expect(speakable("~/notes/todo.md")).toEqual({ speak: NOTE, removed: 1 });
+  });
+  test("table state does not carry out of a fence", () => {
+    expect(speakable("```\n| not a table |\n```\nplain a | b text stays")).toEqual({ speak: `${NOTE} plain a | b text stays`, removed: 1 });
+  });
 });
