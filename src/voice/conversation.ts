@@ -250,7 +250,8 @@ export class VoiceConversation {
         return;
       }
       case "tool":
-        if (m.phase === "start") this.o.phone.send({ t: "narration", text: `${m.name}: ${m.summary}` });
+        // the agent's summary already names the tool ("Bash: git push")
+        if (m.phase === "start") this.o.phone.send({ t: "narration", text: m.summary });
         return;
       case "job":
         if (m.phase === "start") this.jobs.add(m.id);
@@ -312,8 +313,7 @@ export class VoiceConversation {
   onPhone(m: FromPhone): void {
     switch (m.t) {
       case "hello":
-        for (const card of this.pending.values()) this.o.phone.send(card);
-        this.status(true);
+        this.onPhoneJoined();
         return;
       case "mic":
         this.mic = m.on;
@@ -337,6 +337,12 @@ export class VoiceConversation {
         }
         return;
     }
+  }
+
+  /** The phone is in the room (or said hello): bring it up to date with the status and every pending approval. */
+  onPhoneJoined(): void {
+    for (const card of this.pending.values()) this.o.phone.send(card);
+    this.status(true);
   }
 
   /** The phone went away: a half-recorded utterance will never end, so drop it and say what waited. */

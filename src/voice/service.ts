@@ -45,6 +45,7 @@ export function runVoice(config: Config): Promise<number> {
     link.onConnection((up) => conversation.onAgentConnection(up));
     room.onFrame((f) => conversation.onFrame(f));
     room.onPhone((m) => conversation.onPhone(m));
+    room.onPhoneJoined(() => conversation.onPhoneJoined());
     room.onPhoneGone(() => conversation.onPhoneGone());
     room.onLost(() => {
       console.error("voice: lost the livekit room; exiting for a restart");

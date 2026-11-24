@@ -173,8 +173,8 @@ describe("5. status", () => {
     expect(r.phone.last("status")).toEqual({ t: "status", agent: "ready", thinking: true, jobs: 0, audio: true });
     r.agentSays(
       { t: "turnStart", turnId: "o-1", origin: "owner" },
-      { t: "tool", turnId: "o-1", phase: "start", name: "Bash", summary: "git push" },
-      { t: "tool", turnId: "o-1", phase: "end", name: "Bash", summary: "git push" },
+      { t: "tool", turnId: "o-1", phase: "start", name: "Bash", summary: "Bash: git push" },
+      { t: "tool", turnId: "o-1", phase: "end", name: "Bash", summary: "Bash: git push" },
       { t: "job", phase: "start", id: "j1", label: "build" },
       { t: "job", phase: "start", id: "j2", label: "lint" },
     );
@@ -273,6 +273,15 @@ describe("8. approvals in the app (Review Focus 6)", () => {
     r.phone.got = [];
     r.conv.onPhone({ t: "hello", protocol: 1 });
     expect(r.phone.of("approval")).toEqual([{ ...APPROVAL, expiresAt: 1_805_000 }]);
+  });
+
+  test("a phone joining the room gets the status and pending approvals without saying hello", () => {
+    const r = rig({ now: () => 5_000 });
+    r.agentSays(APPROVAL);
+    r.phone.got = [];
+    r.conv.onPhoneJoined();
+    expect(r.phone.of("approval")).toEqual([{ ...APPROVAL, expiresAt: 1_805_000 }]);
+    expect(r.phone.of("status")).toHaveLength(1);
   });
 
   test("decide is forwarded only for a pending id", () => {

@@ -27,6 +27,7 @@ export class Room {
   private frameCb: (f: Int16Array) => void = () => {};
   private phoneCb: (m: FromPhone) => void = () => {};
   private goneCb: () => void = () => {};
+  private joinedCb: () => void = () => {};
   /** the phone's audio track sids, oldest first; the newest feeds the ear */
   private tracks: string[] = [];
   private closed = false;
@@ -51,6 +52,15 @@ export class Room {
   onPhone(cb: (m: FromPhone) => void): void {
     this.phoneCb = cb;
   }
+  /**
+   * The phone is in the room. Its first data message can arrive before the SDK
+   * knows who sent it, and is then dropped, so this, not the phone's `hello`,
+   * is the dependable moment to bring it up to date.
+   */
+  onPhoneJoined(cb: () => void): void {
+    this.joinedCb = cb;
+  }
+
   /** The phone left, or its audio track went away. */
   onPhoneGone(cb: () => void): void {
     this.goneCb = cb;
@@ -145,6 +155,9 @@ export class Room {
       this.tracks = this.tracks.filter((s) => s !== t.sid);
       if (this.tracks.length === 0) this.goneCb();
     });
+    r.on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => {
+      if (p.identity === PHONE) this.joinedCb();
+    });
     r.on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
       if (p.identity !== PHONE) return;
       this.tracks = [];
@@ -161,6 +174,7 @@ export class Room {
     // a phone that was in the room first never fires the events above
     for (const p of r.remoteParticipants.values()) {
       if (p.identity !== PHONE) continue;
+      this.joinedCb();
       for (const pub of p.trackPublications.values()) if (pub.track) this.pump(pub.track as RemoteTrack);
     }
     const lp = r.localParticipant;

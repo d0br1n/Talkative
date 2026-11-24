@@ -55,3 +55,17 @@ test("Disconnected after joining fires onLost once; not before joining; not afte
   lk.emit(RoomEvent.Disconnected);
   expect(lost).toBe(1);
 });
+
+test("the phone joining fires onPhoneJoined, whether it arrives after the voice or was there first", async () => {
+  const lk = new FakeLk(0);
+  lk.remoteParticipants.set("phone", { identity: "phone", trackPublications: new Map() });
+  const room = new Room({ url: "ws://x", token: async () => "t", lk: lk as unknown as LkRoomLike });
+  let joined = 0;
+  room.onPhoneJoined(() => joined++);
+  await room.join();
+  expect(joined).toBe(1);
+  lk.emit(RoomEvent.ParticipantConnected, { identity: "voice-old" });
+  expect(joined).toBe(1);
+  lk.emit(RoomEvent.ParticipantConnected, { identity: "phone" });
+  expect(joined).toBe(2);
+});

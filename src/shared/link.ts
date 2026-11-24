@@ -12,6 +12,7 @@ export type AgentToVoice =
   | { t: "blockStart"; turnId: string; block: number }
   | { t: "delta"; turnId: string; block: number; text: string }
   | { t: "blockEnd"; turnId: string; block: number }
+  /** `summary` is one line that names the tool, like an approval's: `Bash: git push origin main`. */
   | { t: "tool"; turnId: string; phase: "start" | "end"; name: string; summary: string }
   | { t: "job"; phase: "start" | "end"; id: string; label: string; summary?: string }
   | { t: "turnEnd"; turnId: string; ok: boolean; error?: string }
