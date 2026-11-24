@@ -88,7 +88,6 @@ describe.skipIf(!E2E)("end to end", () => {
   let voice: Proc | undefined;
   let agent: Proc | null = null;
   const phones: Proc[] = [];
-  let code = "";
   const env = (extra: Record<string, string> = {}) => ({
     ...process.env, HOME: home, TALKATIVE_HOME: talkHome, TALKATIVE_APPROVAL_TIMEOUT_MS: "3000", ...extra,
   });
@@ -128,6 +127,8 @@ describe.skipIf(!E2E)("end to end", () => {
   }
 
   function phone(...extra: string[]): Proc {
+    // the code changes after every pair: read the current one each time
+    const code = readFileSync(join(talkHome, "code"), "utf8").trim();
     const p = spawn("phone", [BUN, "scripts/fake-phone.ts", "--pair", "http://127.0.0.1:7890", "--code", code, ...extra]);
     phones.push(p);
     return p;
@@ -175,7 +176,6 @@ describe.skipIf(!E2E)("end to end", () => {
 
       const v = (voice = spawn("voice", [BUN, "src/main.ts", "voice"]));
       await v.until(() => v.lines.some((l) => l.startsWith("voice: ready")), 120_000, "voice ready");
-      code = readFileSync(join(talkHome, "code"), "utf8").trim();
       await startAgent("two-sentences");
     } catch (e) {
       await agent?.stop().catch(() => {});
