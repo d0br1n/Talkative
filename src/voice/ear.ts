@@ -85,6 +85,11 @@ export class Ear {
     return this.isSpeaking;
   }
 
+  /** Whether a recording is open: the owner is mid-utterance. */
+  get inUtterance(): boolean {
+    return this.recordingOpen;
+  }
+
   /** One frame of 48 kHz mono Int16 from the phone. */
   push(frame48k: Int16Array): void {
     const joined = new Int16Array(this.carry.length + frame48k.length);
