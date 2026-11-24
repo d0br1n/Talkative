@@ -1,6 +1,7 @@
 import type { Coordinator } from "./coordinator";
 import { decodeVoiceToAgent, encodeLink, LINK_VERSION, type AgentToVoice, type VoiceToAgent } from "../shared/link";
 
+const REPLACED = 4003;
 const BUFFER_CAP = 100;
 const BUFFERED: ReadonlySet<AgentToVoice["t"]> = new Set(["turnEnd", "job", "agent", "approvalDone"]);
 
@@ -11,7 +12,7 @@ export const defaultBackoff = (n: number): number => Math.min(10_000, 500 * 2 **
 export class LinkClient {
   private ws: WebSocket | null = null;
   private up = false;
-  private stopped = false;
+  private running = false;
   private attempt = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private buf: AgentToVoice[] = [];
@@ -41,17 +42,26 @@ export class LinkClient {
   }
 
   start(): void {
-    this.stopped = false;
+    if (this.running) return;
+    this.running = true;
+    this.attempt = 0;
     this.connect();
   }
 
   stop(): void {
-    this.stopped = true;
+    this.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     const ws = this.ws;
     this.ws = null;
     try { ws?.close(); } catch {}
+    this.goDown();
+  }
+
+  private goDown(): void {
+    if (!this.up) return;
+    this.up = false;
+    this.o.onState("down");
   }
 
   send(m: AgentToVoice): void {
@@ -65,12 +75,12 @@ export class LinkClient {
   }
 
   private connect(): void {
-    if (this.stopped) return;
+    if (!this.running) return;
     let ws: WebSocket;
     try {
       ws = new WebSocket(this.o.url);
     } catch {
-      return this.lost(null);
+      return this.lost(null, 0);
     }
     this.ws = ws;
     ws.onopen = () => ws.send(encodeLink({ t: "hello", version: LINK_VERSION, secret: this.o.secret }));
@@ -78,11 +88,11 @@ export class LinkClient {
       if (this.ws !== ws || typeof ev.data !== "string") return;
       let m: VoiceToAgent;
       try { m = decodeVoiceToAgent(ev.data); } catch { return; }
-      if (m.t === "welcome") return this.welcomed();
+      if (m.t === "welcome") return this.up ? undefined : this.welcomed();
       if (this.up) this.msgCb(m);
     };
     ws.onerror = () => {};
-    ws.onclose = () => this.lost(ws);
+    ws.onclose = (ev) => this.lost(ws, ev.code);
   }
 
   private welcomed(): void {
@@ -95,14 +105,16 @@ export class LinkClient {
     for (const cb of this.welcomeCbs) cb();
   }
 
-  private lost(ws: WebSocket | null): void {
+  private lost(ws: WebSocket | null, code: number): void {
     if (ws && this.ws !== ws) return;
     this.ws = null;
-    if (this.up) {
-      this.up = false;
-      this.o.onState("down");
+    this.goDown();
+    if (!this.running) return;
+    if (code === REPLACED) {
+      this.running = false;
+      console.error("replaced by a newer agent; not reconnecting");
+      return;
     }
-    if (this.stopped) return;
     const delay = this.backoff(this.attempt++);
     this.timer = setTimeout(() => {
       this.timer = null;

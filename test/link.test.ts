@@ -10,7 +10,27 @@ const servers: LinkServer[] = [];
 const clients: LinkClient[] = [];
 const coords: Coordinator[] = [];
 const raw: WebSocket[] = [];
+
+const RealWS = globalThis.WebSocket;
+let created = 0;
+const wsCount = () => created;
+(globalThis as any).WebSocket = class extends RealWS {
+  constructor(...a: ConstructorParameters<typeof RealWS>) {
+    super(...a);
+    created++;
+  }
+};
+
+function spyConsoleError() {
+  const lines: string[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => void lines.push(a.join(" "));
+  restore.push(() => (console.error = orig));
+  return () => lines.join("\n");
+}
+const restore: (() => void)[] = [];
 afterEach(() => {
+  for (const r of restore.splice(0)) r();
   for (const c of coords.splice(0)) c.stop();
   for (const c of clients.splice(0)) c.stop();
   for (const r of raw.splice(0)) try { r.close(); } catch {}
@@ -106,19 +126,87 @@ describe("messages", () => {
     expect(down[0]).toEqual({ t: "turn", turnId: "t1", text: "hi", verbosity: "brief" });
   });
 
-  test("second authenticated client replaces the first", async () => {
+  test("second authenticated client replaces the first; the first stops for good", async () => {
     const { s, conn } = await server();
     const a = client(s.port);
     a.c.start();
     await until(() => a.states.includes("up"));
     const b = client(s.port);
+    const errs = spyConsoleError();
     b.c.start();
     await until(() => b.states.includes("up"));
     await until(() => a.states.includes("down"));
+    const made = wsCount();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(wsCount()).toBe(made);
+    expect(a.states).toEqual(["up", "down"]);
+    expect(b.states).toEqual(["up"]);
     expect(conn).toEqual([true]);
-    s.send({ t: "interrupt" });
+    expect(errs()).toContain("replaced by a newer agent; not reconnecting");
+    expect(s.send({ t: "interrupt" })).toBe(true);
     await until(() => b.got.length >= 1);
     expect(b.got[0]).toEqual({ t: "interrupt" });
+    expect(a.got).toEqual([]);
+  });
+});
+
+describe("lifecycle", () => {
+  test("client stop emits down once; start after stop reconnects; double start is one socket", async () => {
+    const { s } = await server();
+    const { c, states } = client(s.port);
+    const before = wsCount();
+    c.start();
+    c.start();
+    expect(wsCount() - before).toBe(1);
+    await until(() => states.includes("up"));
+    c.stop();
+    c.stop();
+    expect(states).toEqual(["up", "down"]);
+    c.start();
+    await until(() => states.length === 3);
+    expect(states).toEqual(["up", "down", "up"]);
+  });
+
+  test("server stop fires onConnection(false)", async () => {
+    const { s, conn } = await server();
+    const { c, states } = client(s.port);
+    c.start();
+    await until(() => states.includes("up"));
+    s.stop();
+    expect(conn).toEqual([true, false]);
+  });
+
+  test("duplicate welcome on one socket is ignored", async () => {
+    const fake = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: (req, srv) => (srv.upgrade(req) ? undefined : new Response("no")),
+      websocket: {
+        message: (ws) => {
+          ws.send(JSON.stringify({ t: "welcome", version: LINK_VERSION }));
+          ws.send(JSON.stringify({ t: "welcome", version: LINK_VERSION }));
+        },
+      },
+    });
+    try {
+      const { c, states } = client(fake.port!);
+      let welcomes = 0;
+      c.onWelcome(() => welcomes++);
+      c.start();
+      await until(() => states.includes("up"));
+      await new Promise((r) => setTimeout(r, 100));
+      expect(welcomes).toBe(1);
+      expect(states).toEqual(["up"]);
+    } finally {
+      for (const c of clients.splice(0)) c.stop();
+      fake.stop(true);
+    }
+  });
+
+  test("oversize first frame closes the socket", async () => {
+    const { s } = await server();
+    const r = rawSocket(s.port, "x".repeat(2 * 1_048_576));
+    expect(await r.closed).not.toBe(4003);
   });
 });
 

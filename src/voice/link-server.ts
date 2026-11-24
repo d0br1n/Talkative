@@ -44,6 +44,7 @@ export class LinkServer {
         return new Response("talkative link", { status: 426 });
       },
       websocket: {
+        maxPayloadLength: 1_048_576,
         open: (ws) => {
           ws.data.timer = setTimeout(() => {
             if (!ws.data.authed) ws.close(4001, "unauthorized");
@@ -64,8 +65,10 @@ export class LinkServer {
   stop(): void {
     const s = this.server;
     this.server = null;
+    const had = this.agent !== null;
     this.agent = null;
     s?.stop(true);
+    if (had) this.connCb(false);
   }
 
   send(m: VoiceToAgent): boolean {
