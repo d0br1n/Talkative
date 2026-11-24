@@ -42,3 +42,26 @@ Read these 30 lines to record the benchmark clips. Commands are marked **(comman
 28. Explain the trade-off between holding the gate and denying it.
 29. continue **(command)**
 30. That's all for now, tell me when the build finishes.
+
+## Running the benchmark
+
+Do these in order.
+
+1. **Install.** `uv sync` (Python 3.12 is pinned in `.python-version`).
+2. **Fetch models.** `scripts/fetch_models.sh`. Whisper weights are not part of this: faster-whisper downloads them into `models/faster-whisper` the first time an engine runs. Set `TALKATIVE_OFFLINE=1` to stop that download (a Whisper engine with no cached weights is then recorded as failed).
+3. **Copy the memos** into `recordings/` (`gym-1.m4a`, `gym-2.m4a`, `transit-1.m4a`, `transit-2.m4a`, `quiet-1.m4a`).
+4. **Prepare the clips.** `uv run python -m bench.prepare recordings/*.m4a clips/`. Each memo prints `<memo>: 30 utterances, labelled`, or a message saying how many utterances it found. In that case the clips are written unlabelled and the command exits non-zero. Fix the manifest by hand: open `clips/<memo>/manifest.json`, set each clip's value to its card line number (an integer 1 to 30), and set `null` for any clip to skip (a cough, a false start, a repeated line). Then re-run nothing: the runner reads the manifests as they are. Invalid ids are rejected with the file name and the bad value. `bench.prepare` refuses to overwrite a memo that already has a manifest unless you pass `--force`, which discards your edits and deletes that memo's clips first.
+5. **Copy to the Oracle box** with `rsync -a` (the Hugging Face cache under `models/faster-whisper` uses symlinks, which plain `cp` or `scp` would break). Include `clips/` and `models/` along with the repo.
+6. **On Oracle:** `uv sync`, then `scripts/run_all.sh oracle`. It refuses to start the STT runs, with a message, if there is no `clips/*/manifest.json`; the TTS runs still go ahead.
+7. **On the laptop (optional, unverified): CUDA for float16 Whisper.** Whisper falls back to int8 on CPU if CUDA libraries cannot be loaded. For the GPU it needs the pip packages `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`, for example `uv pip install nvidia-cublas-cu12 nvidia-cudnn-cu12`, and their `lib` directories on `LD_LIBRARY_PATH`:
+   `export LD_LIBRARY_PATH=$(uv run python -c "import nvidia.cublas.lib, nvidia.cudnn.lib, os; print(os.path.dirname(nvidia.cublas.lib.__file__) + ':' + os.path.dirname(nvidia.cudnn.lib.__file__))"):$LD_LIBRARY_PATH`
+   This step has not been tested here. The STT table's Device column shows whether `cuda` or `cpu` was really used.
+8. **Close Claude Code agents** before the laptop run, so memory pressure and CPU load do not skew the timings. Then run `scripts/run_all.sh laptop`.
+9. **Reports** land in `docs/bench/results-<host>.md` (raw JSON in `results/<host>/`).
+
+How to read the STT table: the pass/fail verdict uses the gym and transit clips only. The quiet clips are a control, shown per memo and excluded from the verdict. The command bar needs every command (`continue`, `stop`, `new conversation`, `audio off`, `audio on`, `switch project`) at 95% or better, as well as the pooled rate.
+
+## Open licence items
+
+- **espeak-ng (GPL-3)** is compiled into sherpa-onnx's native library, so in-process sherpa TTS loads GPL code. That is fine for this local benchmark, but it must be resolved before the voice side ships.
+- **The Piper lessac voice is research-only.** Do not ship it.
