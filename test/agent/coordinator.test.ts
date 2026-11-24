@@ -1,0 +1,225 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { claudeArgs } from "../../src/agent/claude";
+import { Coordinator } from "../../src/agent/coordinator";
+import { DENIED_BY_OWNER, DENIED_BY_TIMEOUT, SPOKEN_STYLE, withVerbosity } from "../../src/agent/prompt";
+import type { AgentToVoice } from "../../src/shared/link";
+import { fakeSpawn, has, readLog, until } from "./helpers";
+
+const live: Coordinator[] = [];
+function make(fixture: string, extra: Partial<ConstructorParameters<typeof Coordinator>[0]> = {}) {
+  const out: AgentToVoice[] = [];
+  const { spawn, log } = fakeSpawn(fixture);
+  const c = new Coordinator({ spawn, cwd: process.cwd(), model: "sonnet", effort: "default", emit: (m) => out.push(m), ...extra });
+  live.push(c);
+  return { c, out, log };
+}
+afterEach(() => { while (live.length) live.pop()!.stop(); });
+
+const approvalDecisions = (log: string) =>
+  readLog(log).filter((e) => e.stdin?.type === "control_response").map((e) => e.stdin.response);
+
+describe("prompt + args", () => {
+  test("withVerbosity", () => expect(withVerbosity("hi", "brief")).toBe("[verbosity: brief]\nhi"));
+  test("claudeArgs", () => {
+    const a = claudeArgs({ model: "opus", effort: "high", resume: "s9" });
+    expect(a.slice(0, 11)).toEqual(["-p", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio", "--permission-mode"]);
+    expect(a).toContain("acceptEdits");
+    expect(a).not.toContain("--bare");
+    expect(a.join(" ")).toContain("--model opus --effort high --append-system-prompt " + SPOKEN_STYLE);
+    expect(a.slice(-2)).toEqual(["--resume", "s9"]);
+    expect(claudeArgs({ model: "m", effort: "default" })).not.toContain("--effort");
+    expect(claudeArgs({ model: "m", effort: "default" })).not.toContain("--resume");
+  });
+});
+
+describe("turns", () => {
+  test("owner turn: input line, blocks, turnEnd", async () => {
+    const { c, out, log } = make("text-turn");
+    c.start();
+    await until(() => has(out, { t: "agent", state: "ready" }));
+    expect(out[0]).toEqual({ t: "agent", state: "starting" });
+    expect(c.sessionId).toBe("sess-1");
+    c.turn("t1", "hi", "brief");
+    await until(() => has(out, { t: "turnEnd" }));
+    expect(readLog(log).find((e) => e.stdin?.type === "user")!.stdin).toEqual({ type: "user", message: { role: "user", content: "[verbosity: brief]\nhi" } });
+    expect(out.slice(2)).toEqual([
+      { t: "turnStart", turnId: "t1", origin: "owner" },
+      { t: "blockStart", turnId: "t1", block: 0 },
+      { t: "delta", turnId: "t1", block: 0, text: "Hello" },
+      { t: "delta", turnId: "t1", block: 0, text: " there." },
+      { t: "blockEnd", turnId: "t1", block: 0 },
+      { t: "turnEnd", turnId: "t1", ok: true },
+    ]);
+    const args = readLog(log)[0]!.args!;
+    expect(args).not.toContain("--resume");
+  });
+
+  test("tool blocks emit tool start/end, not a text block", async () => {
+    const { c, out } = make("tool-turn");
+    c.start();
+    await until(() => has(out, { t: "agent", state: "ready" }));
+    c.turn("t1", "list", "normal");
+    await until(() => has(out, { t: "turnEnd" }));
+    const tools = out.filter((m) => m.t === "tool");
+    expect(tools).toEqual([
+      { t: "tool", turnId: "t1", phase: "start", name: "Bash", summary: "Bash: ls -la" },
+      { t: "tool", turnId: "t1", phase: "end", name: "Bash", summary: "Bash: ls -la" },
+    ]);
+    const blocks = out.filter((m) => m.t === "blockStart").map((m: any) => m.block);
+    expect(blocks).toEqual([0, 1]);
+  });
+
+  test("assistant output with no owner turn open is an agent turn", async () => {
+    const { c, out } = make("unprompted");
+    c.start();
+    await until(() => has(out, { t: "turnEnd" }));
+    expect(out.find((m) => m.t === "turnStart")).toEqual({ t: "turnStart", turnId: "agent-1", origin: "agent" });
+    expect(has(out, { t: "delta", text: "Job finished." })).toBe(true);
+  });
+
+  test("interrupt writes a control_request", async () => {
+    const { c, out, log } = make("text-turn");
+    c.start();
+    await until(() => has(out, { t: "agent", state: "ready" }));
+    c.interrupt();
+    await until(() => readLog(log).some((e) => e.stdin?.request?.subtype === "interrupt"));
+    expect(readLog(log).find((e) => e.stdin?.request)!.stdin).toEqual({ type: "control_request", request: { subtype: "interrupt" } });
+  });
+});
+
+describe("restarts", () => {
+  test("newConversation restarts without --resume", async () => {
+    const { c, out, log } = make("text-turn");
+    c.start();
+    await until(() => has(out, { t: "agent", state: "ready" }));
+    c.newConversation();
+    await until(() => out.filter((m) => m.t === "agent" && m.state === "ready").length === 2);
+    const starts = readLog(log).filter((e) => e.args);
+    expect(starts.length).toBe(2);
+    expect(starts[1]!.args).not.toContain("--resume");
+    expect(has(out, { t: "agent", state: "restarting" })).toBe(true);
+  });
+
+  test("settings restarts with --resume and the new model", async () => {
+    const { c, out, log } = make("text-turn");
+    c.start();
+    await until(() => has(out, { t: "agent", state: "ready" }));
+    c.settings("opus", "high");
+    await until(() => out.filter((m) => m.t === "agent" && m.state === "ready").length === 2);
+    const a = readLog(log).filter((e) => e.args)[1]!.args!;
+    expect(a.slice(-2)).toEqual(["--resume", "sess-1"]);
+    expect(a[a.indexOf("--model") + 1]).toBe("opus");
+    expect(a[a.indexOf("--effort") + 1]).toBe("high");
+  });
+
+  test("crash restarts with --resume, closes the open turn", async () => {
+    const { c, out, log } = make("crash-on-turn");
+    c.start();
+    await until(() => has(out, { t: "agent", state: "ready" }));
+    c.turn("t1", "hi", "brief");
+    await until(() => out.filter((m) => m.t === "agent" && m.state === "ready").length === 2);
+    expect(has(out, { t: "turnEnd", turnId: "t1", ok: false })).toBe(true);
+    const restartingAt = out.findIndex((m) => m.t === "agent" && m.state === "restarting");
+    expect(restartingAt).toBeGreaterThan(-1);
+    expect(readLog(log).filter((e) => e.args)[1]!.args!.slice(-2)).toEqual(["--resume", "sess-1"]);
+  });
+
+  test("repeated start failures emit crashed with the last stderr line", async () => {
+    const { c, out } = make("crash-on-start");
+    c.start();
+    await until(() => has(out, { t: "agent", state: "crashed" }), 8000);
+    expect(has(out, { t: "agent", state: "restarting" })).toBe(true);
+    expect(has(out, { t: "agent", state: "crashed", detail: "error: login expired" })).toBe(true);
+  });
+});
+
+describe("approvals", () => {
+  async function pendingOne(extra: Partial<ConstructorParameters<typeof Coordinator>[0]> = {}) {
+    const m = make("approval", extra);
+    m.c.start();
+    await until(() => has(m.out, { t: "agent", state: "ready" }));
+    m.c.turn("t1", "push", "brief");
+    await until(() => has(m.out, { t: "approval" }));
+    return m;
+  }
+
+  test("approval is held and forwarded", async () => {
+    const { c, out } = await pendingOne();
+    const a = out.find((m) => m.t === "approval") as any;
+    expect(a.id).toBe("req-1");
+    expect(a.tool).toBe("Bash");
+    expect(a.summary).toBe("Bash: git push origin main");
+    expect(JSON.parse(a.detail)).toEqual({ command: "git push origin main" });
+    expect(c.pendingApprovals()).toEqual([a]);
+    expect(has(out, { t: "turnEnd" })).toBe(false);
+  });
+
+  test("allow answers with the original input", async () => {
+    const { c, out, log } = await pendingOne();
+    c.decide("req-1", true);
+    await until(() => has(out, { t: "turnEnd" }));
+    expect(approvalDecisions(log)).toEqual([
+      { subtype: "success", request_id: "req-1", response: { behavior: "allow", updatedInput: { command: "git push origin main" } } },
+    ]);
+    expect(has(out, { t: "approvalDone", id: "req-1", allow: true, by: "owner" })).toBe(true);
+    expect(c.pendingApprovals()).toEqual([]);
+  });
+
+  test("deny carries the owner message", async () => {
+    const { c, out, log } = await pendingOne();
+    c.decide("req-1", false);
+    await until(() => has(out, { t: "turnEnd" }));
+    expect(approvalDecisions(log)).toEqual([{ subtype: "success", request_id: "req-1", response: { behavior: "deny", message: DENIED_BY_OWNER } }]);
+    expect(has(out, { t: "approvalDone", id: "req-1", allow: false, by: "owner" })).toBe(true);
+  });
+
+  test("timeout denies with the timeout message (injected clock)", async () => {
+    let t = 1000;
+    const { c, out, log } = await pendingOne({ now: () => t, approvalTimeoutMs: 1_800_000 });
+    t += 1_799_999;
+    expect(c.pendingApprovals().length).toBe(1);
+    t += 1;
+    expect(c.pendingApprovals()).toEqual([]);
+    await until(() => has(out, { t: "turnEnd" }));
+    expect(approvalDecisions(log)).toEqual([{ subtype: "success", request_id: "req-1", response: { behavior: "deny", message: DENIED_BY_TIMEOUT } }]);
+    expect(has(out, { t: "approvalDone", id: "req-1", allow: false, by: "timeout" })).toBe(true);
+    c.decide("req-1", true); // late decide after expiry: ignored
+    expect(out.filter((m) => m.t === "approvalDone").length).toBe(1);
+  });
+
+  test("a late allow after the deadline is not honoured", async () => {
+    let t = 0;
+    const { c, out, log } = await pendingOne({ now: () => t, approvalTimeoutMs: 100 });
+    t = 100;
+    c.decide("req-1", true);
+    await until(() => has(out, { t: "turnEnd" }));
+    expect(approvalDecisions(log)[0]!.response.behavior).toBe("deny");
+  });
+
+  test("a second decide is ignored", async () => {
+    const { c, out, log } = await pendingOne();
+    c.decide("req-1", true);
+    c.decide("req-1", false);
+    await until(() => has(out, { t: "turnEnd" }));
+    expect(approvalDecisions(log).length).toBe(1);
+    expect(out.filter((m) => m.t === "approvalDone").length).toBe(1);
+  });
+
+  test("an unknown id is ignored", async () => {
+    const { c, out, log } = await pendingOne();
+    c.decide("nope", true);
+    expect(approvalDecisions(log).length).toBe(0);
+    expect(out.filter((m) => m.t === "approvalDone").length).toBe(0);
+    expect(c.pendingApprovals().length).toBe(1);
+  });
+
+  test("pending approvals are dropped on a restart", async () => {
+    const { c, out, log } = await pendingOne();
+    c.newConversation();
+    expect(has(out, { t: "approvalDone", id: "req-1", allow: false, by: "timeout" })).toBe(true);
+    expect(c.pendingApprovals()).toEqual([]);
+    await until(() => out.filter((m) => m.t === "agent" && m.state === "ready").length === 2);
+    c.decide("req-1", true);
+    expect(approvalDecisions(log).length).toBe(0);
+  });
+});
