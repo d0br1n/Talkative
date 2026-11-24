@@ -1,0 +1,13 @@
+{"type":"system","subtype":"init","session_id":"sess-e2e-long","model":"sonnet"}
+{"fake":"await-user"}
+{"type":"stream_event","event":{"type":"message_start","message":{"role":"assistant"}}}
+{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Here is a longer answer."}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" It has several sentences."}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" Each one takes a moment to say."}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" This is the fourth of them."}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" The fifth comes after that."}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" And this is the last one."}}}
+{"type":"stream_event","event":{"type":"content_block_stop","index":0}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Here is a longer answer. It has several sentences. Each one takes a moment to say. This is the fourth of them. The fifth comes after that. And this is the last one."}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Here is a longer answer. It has several sentences. Each one takes a moment to say. This is the fourth of them. The fifth comes after that. And this is the last one.","session_id":"sess-e2e-long"}
