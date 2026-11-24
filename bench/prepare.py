@@ -1,6 +1,9 @@
 """Turn a voice memo into one labelled WAV clip per card line."""
 
+import argparse
 import json
+import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -68,6 +71,8 @@ def prepare(memo: Path, out_dir: Path) -> PrepareResult:
         )
 
     folder = out_dir / memo.stem
+    if folder.exists():
+        shutil.rmtree(folder)  # clear orphan clips from an earlier run (the CLI guards overwrites)
     folder.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, int | None] = {}
     clips: list[Path] = []
@@ -88,7 +93,49 @@ def load_clips(clips_dir: Path) -> list[LabelledClip]:
     for manifest_path in sorted(clips_dir.glob("*/manifest.json")):
         manifest: dict[str, int | None] = json.loads(manifest_path.read_text())
         for name, line_id in sorted(manifest.items()):
+            valid = line_id is None or (
+                isinstance(line_id, int) and not isinstance(line_id, bool) and 1 <= line_id <= len(LINES)
+            )
+            if not valid:
+                raise ValueError(
+                    f"{manifest_path}: bad id {line_id!r} for {name}; use an integer 1..{len(LINES)} or null"
+                )
             path = manifest_path.parent / name
             audio, _ = sf.read(path, dtype="float32")
             result.append(LabelledClip(manifest_path.parent.name, path, line_id, audio))
     return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(
+        prog="bench.prepare",
+        description="Split voice memos into labelled 16 kHz clips: MEMO [MEMO ...] OUT_DIR",
+    )
+    p.add_argument("paths", nargs="+", type=Path, metavar="PATH",
+                   help="one or more memo files, then the output directory")
+    p.add_argument("--force", action="store_true",
+                   help="overwrite memos already prepared (discards manual manifest edits)")
+    a = p.parse_args(argv)
+    if len(a.paths) < 2:
+        p.error("need at least one MEMO and an OUT_DIR")
+    *memos, out_dir = a.paths
+
+    existing = [m for m in memos if (out_dir / m.stem / "manifest.json").exists()]
+    if existing and not a.force:
+        for m in existing:
+            print(f"{m.stem}: {out_dir / m.stem / 'manifest.json'} already exists; "
+                  "pass --force to overwrite (this discards manual manifest edits)")
+        return 2
+
+    failures = 0
+    for memo in memos:
+        result = prepare(memo, out_dir)
+        if result.labelled:
+            print(f"{memo.stem}: {result.count} utterances, labelled")
+        else:
+            failures += 1
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

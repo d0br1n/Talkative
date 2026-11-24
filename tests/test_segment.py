@@ -95,3 +95,76 @@ def test_one_word_command_survives_real_prepare(tmp_path):
     result = prepare_mod.prepare(memo, tmp_path / "clips")
 
     assert result.count == 3
+
+
+def _write_manifest(tmp_path, manifest):
+    import soundfile as sf
+
+    folder = tmp_path / "memo"
+    folder.mkdir()
+    for name in manifest:
+        sf.write(folder / name, np.zeros(1600, np.float32), 16000)
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+
+
+@pytest.mark.parametrize("bad", [0, 31, "3", 2.5, True])
+def test_load_clips_rejects_bad_ids(tmp_path, bad):
+    _write_manifest(tmp_path, {"01.wav": 1, "02.wav": bad})
+    with pytest.raises(ValueError) as exc:
+        prepare_mod.load_clips(tmp_path)
+    assert "manifest.json" in str(exc.value) and repr(bad) in str(exc.value)
+
+
+def test_load_clips_accepts_null_and_bounds(tmp_path):
+    _write_manifest(tmp_path, {"01.wav": 1, "02.wav": 30, "03.wav": None})
+    assert [c.line_id for c in prepare_mod.load_clips(tmp_path)] == [1, 30, None]
+
+
+def _sine_memo(path):
+    t = np.arange(16000 * 3) / 16000
+    import soundfile as sf
+
+    sf.write(path, (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32), 16000)
+
+
+def _cli(*args):
+    import sys
+
+    return subprocess.run([sys.executable, "-m", "bench.prepare", *map(str, args)],
+                          capture_output=True, text=True)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+@pytest.mark.skipif(not prepare_mod.VAD_MODEL.exists(), reason="models/silero_vad.onnx missing")
+def test_cli_without_labels_exits_nonzero_and_refuses_overwrite(tmp_path):
+    memo, out = tmp_path / "tone.wav", tmp_path / "clips"
+    _sine_memo(memo)
+    first = _cli(memo, out)
+    assert first.returncode == 1
+    assert "tone: found 0 utterances, expected 30" in first.stdout
+    manifest = out / "tone" / "manifest.json"
+    manifest.write_text('{"edited": 1}')  # a manual fix the re-run must not destroy
+
+    second = _cli(memo, out)
+    assert second.returncode == 2 and "--force" in second.stdout
+    assert manifest.read_text() == '{"edited": 1}'
+
+    (out / "tone" / "99.wav").write_bytes(b"orphan")
+    third = _cli(memo, out, "--force")
+    assert third.returncode == 1
+    assert json.loads(manifest.read_text()) == {}
+    assert not (out / "tone" / "99.wav").exists()
+
+
+def test_cli_needs_memo_and_out_dir():
+    assert _cli("only-one").returncode == 2
+
+
+def test_cli_success_message_and_exit_zero(tmp_path, monkeypatch, capsys):
+    memo = tmp_path / "ok.m4a"
+    memo.write_bytes(b"")
+    monkeypatch.setattr(prepare_mod, "load_16k_mono", lambda p: np.full(16000 * 100, 0.1, np.float32))
+    probs = ([0.9] * 34 + [0.1] * 34) * 30
+    monkeypatch.setattr(prepare_mod, "vad_probs", lambda audio, rate: (probs, 30))
+    assert prepare_mod.main([str(memo), str(tmp_path / "clips")]) == 0
+    assert "ok: 30 utterances, labelled" in capsys.readouterr().out
