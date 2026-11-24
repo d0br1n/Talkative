@@ -9,6 +9,7 @@ import { HeldLines, type Cuttable } from "./held.js";
 import { LINES, type Line } from "./lines.js";
 import { Mouth, type PhonePort, type Speaker, type Tts } from "./mouth.js";
 import { SentenceCollector } from "./sentences.js";
+import { ClosedTurns } from "./turns.js";
 import { speakable } from "./speakable.js";
 
 export type { PhonePort, Speaker, Tts };
@@ -64,8 +65,8 @@ export class VoiceConversation {
   private readonly turns = new Map<string, Turn>();
   /** owner turns sent and not ended: the status's `thinking` */
   private readonly ownerTurns = new Set<string>();
-  /** turns a link drop closed here: what the agent still sends for them is ignored until their turnEnd */
-  private readonly closed = new Set<string>();
+  /** turns a link drop closed here */
+  private readonly closed = new ClosedTurns();
   private readonly jobs = new Set<string>();
   private sentTurns = 0;
   private linkUp = false;
@@ -162,6 +163,7 @@ export class VoiceConversation {
         this.mouth.stop();
         if (this.linkUp && this.o.agent.send({ t: "newConversation" })) {
           this.restartAsked = true;
+          this.closed.clear();
           this.say(LINES.newConversation);
         } else this.say(LINES.notConnected);
         return;
@@ -210,7 +212,7 @@ export class VoiceConversation {
       return;
     }
     // the agent cannot finish what was open, and its jobs went with it as far as we can tell
-    for (const id of [...this.turns.keys(), ...this.ownerTurns]) this.closed.add(id);
+    this.closed.close([...this.turns.keys(), ...this.ownerTurns]);
     this.turns.clear();
     this.ownerTurns.clear();
     this.jobs.clear();
@@ -220,10 +222,7 @@ export class VoiceConversation {
   }
 
   onAgent(m: AgentToVoice): void {
-    if ("turnId" in m && this.closed.has(m.turnId)) {
-      if (m.t === "turnEnd") this.closed.delete(m.turnId);
-      return;
-    }
+    if (this.closed.ignores(m)) return;
     switch (m.t) {
       case "hello":
         return;
@@ -282,6 +281,7 @@ export class VoiceConversation {
 
   private agentState(state: Phase): void {
     const was = this.phase;
+    if (state !== "ready") this.closed.clear();
     this.phase = state;
     if (state === "restarting" || state === "crashed") {
       // a restarted coordinator does not end the jobs it dropped

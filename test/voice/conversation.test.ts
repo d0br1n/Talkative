@@ -486,3 +486,39 @@ describe("fix round 1", () => {
     expect(r.stt.calls).toBe(0);
   });
 });
+
+describe("fix round 2: reused turn ids after a drop", () => {
+  test("a restarted agent's fresh agent-1 is spoken after a drop left the old agent-1 open", async () => {
+    const r = rig();
+    r.reply("agent-1", "agent", ["The old reply starts here. "], false);
+    r.conv.onAgentConnection(false);
+    r.conv.onAgentConnection(true);
+    r.agentSays({ t: "agent", state: "restarting" }, { t: "agent", state: "ready" });
+    r.reply("agent-1", "agent", ["The new reply is spoken. "]);
+    await settle();
+    expect(r.spoken()).toContain("The new reply is spoken.");
+  });
+
+  test("an id reused with a fresh turnStart and no state change is spoken", async () => {
+    const r = rig();
+    r.reply("agent-1", "agent", ["The old reply starts here. "], false);
+    r.conv.onAgentConnection(false);
+    r.conv.onAgentConnection(true);
+    r.agentSays({ t: "delta", turnId: "agent-1", block: 0, text: "Old tail is ignored. And more of it. " });
+    r.reply("agent-1", "agent", ["The new reply is spoken. "]);
+    await settle();
+    expect(r.spoken()).toEqual(["The old reply starts here.", LINES.lost, LINES.back, "The new reply is spoken."]);
+  });
+
+  test("new conversation forgets closed ids", async () => {
+    const r = rig();
+    r.reply("agent-1", "agent", ["The old reply starts here. "], false);
+    r.conv.onAgentConnection(false);
+    r.conv.onAgentConnection(true);
+    r.conv.onPhone({ t: "said", text: "new conversation" });
+    // no turnStart: only a cleared set lets this through
+    r.agentSays({ t: "delta", turnId: "agent-1", block: 0, text: "After the reset it is spoken. " });
+    await settle();
+    expect(r.spoken()).toContain("After the reset it is spoken.");
+  });
+});
