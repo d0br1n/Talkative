@@ -9,7 +9,12 @@ description = "Benchmarks for choosing self-hosted speech engines for Talkative"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "numpy>=2.4.6",
+    "onnxruntime>=1.32.0",
+    "sherpa-onnx>=2.0.3",
+    "soundfile>=0.14.0",
+]
 
 [dependency-groups]
 dev = [
