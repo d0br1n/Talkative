@@ -28,11 +28,11 @@ Each `TODO(owner)` in the source, and what it needs.
 | `site/index.html:38` | Hero photo slot | Optional. A photo, or leave the animated mark. |
 | `site/index.html:57` | Notify form endpoint | Which service, and its URL. The form sends nothing now. |
 | `site/index.html:64` | Repository URL, for the hero "read the design" button | The public repository URL, or the design document URL. |
-| `site/index.html:214` | Repository URL, for the open source "read the design" button | The same URL. |
+| `site/index.html:214` | Repository URL, for the open source "read the design" button | The public repository URL, or the design document URL. |
 | `site/index.html:251` | Repository URL, footer "Repository" link | The public repository URL. |
 | `site/mark.js:136` | Notify endpoint in the form script | The same endpoint as above. |
 
-Both "read the design" buttons link to `#` until the URL is set.
+All three links point to `#` until the URL is set: both "read the design" buttons and the footer "Repository" link.
 
 ## Open questions
 
@@ -46,7 +46,7 @@ From brief section 10. Please answer before the page goes live.
 
 ## Copy and design decisions to check
 
-- **Headline and subhead.** The subhead reads: "Hold a real spoken conversation with Claude Code from your iPhone. Phone in your pocket, screen locked, earbuds in. Interrupt it whenever you like." Please check the wording.
+- **Headline and subhead.** The headline reads: "Talk to your coding agent like a colleague — from anywhere, on hardware you own." It contains an em dash. Change it if you dislike them. The subhead reads: "Hold a real spoken conversation with Claude Code from your iPhone. Phone in your pocket, screen locked, earbuds in. Interrupt it whenever you like." Please check the wording.
 - **FAQ App Store answer.** Brief section 7 gives an App Store answer. Brief section 8 says not to mention the App Store. The page keeps the section 7 answer, in the FAQ only. It is a plain "No". Please confirm.
 - **"Read the design".** This button links to a placeholder for now.
 - **Hero visual.** The hero uses the animated listening mark instead of a photo. A photo slot is left as a TODO.
@@ -63,6 +63,8 @@ From brief section 10. Please answer before the page goes live.
 - Ratios use the WCAG 2.x formula.
 - The dark "worst case" column comes from a per-pixel model of the actual CSS. It assumes the strongest glow, a scanline row, and the vignette. It is checked at five viewport sizes, from 360 by 740 to 2560 by 1300.
 - Every pair passes its target.
+
+In short: all text is readable in both light and dark mode.
 
 Dark (`#0C0A07`)
 
