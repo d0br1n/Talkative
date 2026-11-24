@@ -13,7 +13,7 @@ const REPO = join(import.meta.dir, "..", "..");
 const BUN = process.execPath;
 const SENTENCE = join(REPO, "tests/fixtures/sentence.wav");
 const STOP = join(REPO, "tests/fixtures/stop.wav");
-const TCP_PORTS = [7880, 7881, 7890, 7891];
+const TCP_PORTS = [7880, 7890, 7891];
 const UDP_PORTS = Array.from({ length: 20 }, (_, i) => 50000 + i);
 
 interface Event { event: string; t: number; at: number; [k: string]: any }
@@ -85,7 +85,7 @@ describe.skipIf(!E2E)("end to end", () => {
   const log = join(tmp, "run.log");
   const container = `talkative-e2e-${process.pid}`;
   let containerStarted = false;
-  let voice: Proc;
+  let voice: Proc | undefined;
   let agent: Proc | null = null;
   const phones: Proc[] = [];
   let code = "";
@@ -99,6 +99,14 @@ describe.skipIf(!E2E)("end to end", () => {
   };
   // a crash of this runner still takes the container down
   process.on("exit", removeContainer);
+  // so does ctrl-c: the container first, then the children
+  const onSignal = (sig: NodeJS.Signals) => {
+    removeContainer();
+    for (const p of [...phones, agent, voice]) if (p && p.p.exitCode === null) p.p.kill("SIGKILL");
+    process.exit(sig === "SIGINT" ? 130 : 143);
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
 
   function spawn(name: string, cmd: string[], extra: Record<string, string> = {}): Proc {
     const p = Bun.spawn(cmd, { cwd: REPO, env: env(extra), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
@@ -150,10 +158,11 @@ describe.skipIf(!E2E)("end to end", () => {
       run([BUN, "src/main.ts", "init", "--bind", "127.0.0.1", "--project", project]);
       run([BUN, "src/main.ts", "livekit"]);
       const yaml = join(talkHome, "livekit.yaml");
+      // set first: a signal mid-run still removes it, and `rm -f` on a name that never started is harmless
+      containerStarted = true;
       const started = spawnSync(["docker", "run", "-d", "--name", container, "--network", "host",
         "-v", `${yaml}:/livekit.yaml:ro`, LIVEKIT_IMAGE, "--config", "/livekit.yaml"]);
       if (started.exitCode !== 0) throw new Error(`docker run failed: ${started.stderr.toString()}`);
-      containerStarted = true;
       const until = Date.now() + 30_000;
       for (;;) {
         try {
@@ -164,8 +173,8 @@ describe.skipIf(!E2E)("end to end", () => {
       }
       appendFileSync(log, `--- ss -ltnup with livekit up\n${spawnSync(["ss", "-ltnup"]).stdout}\n`);
 
-      voice = spawn("voice", [BUN, "src/main.ts", "voice"]);
-      await voice.until(() => voice.lines.some((l) => l.startsWith("voice: ready")), 120_000, "voice ready");
+      const v = (voice = spawn("voice", [BUN, "src/main.ts", "voice"]));
+      await v.until(() => v.lines.some((l) => l.startsWith("voice: ready")), 120_000, "voice ready");
       code = readFileSync(join(talkHome, "code"), "utf8").trim();
       await startAgent("two-sentences");
     } catch (e) {
@@ -190,6 +199,11 @@ describe.skipIf(!E2E)("end to end", () => {
     expect(joinedStatus.agent).toBe("ready");
     const heard = await p.until(() => p.events.find((e) => e.event === "heard"), 30_000, "heard");
     appendFileSync(log, `--- ss -tunap with the phone in the room\n${spawnSync(["ss", "-tunap"]).stdout}\n`);
+    // every livekit socket waiting for a peer is on the bind address: no wildcard, no other interface
+    const listening = spawnSync(["ss", "-tulnH"]).stdout.toString().split("\n").map((l) => l.trim().split(/\s+/)[4] ?? "")
+      .filter((local) => /:(788[0-9]|500[01][0-9])$/.test(local));
+    expect(listening.length).toBeGreaterThan(0);
+    expect(listening.filter((local) => !local.startsWith("127.0.0.1:"))).toEqual([]);
     const text = norm(heard.text);
     expect((text.includes("livekit") && text.includes("oracle")) || text.includes("live kit")).toBe(true);
     const first = await p.until(() => p.events.find((e) => e.event === "firstAudio" && e.t >= 0), 15_000, "firstAudio");

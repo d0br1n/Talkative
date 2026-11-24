@@ -13,7 +13,7 @@ Without `TALKATIVE_E2E=1` it is skipped, so the default `bun test` stays fast.
 - Docker, able to run `livekit/livekit-server:v1.13.11` with `--network host`.
 - The models under `models/` and the Python env at `.venv/` (`scripts/fetch_models.sh`, `uv sync`).
 - `ffmpeg` (the fake phone decodes WAVs with it).
-- Free ports: TCP 7880, 7881, 7890, 7891 and UDP 50000-50019. The test refuses to start otherwise.
+- Free ports: TCP 7880, 7890, 7891 and UDP 50000-50019. The test refuses to start otherwise.
 
 ## What it does
 

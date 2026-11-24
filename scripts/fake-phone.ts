@@ -90,6 +90,8 @@ let firstAudioSeen = false;
 let lastLoud = 0;
 let loudMsSinceMark = 0;
 let firstAudio = Promise.withResolvers<void>();
+/** the voice's first status: it has seen us join */
+const greeted = Promise.withResolvers<void>();
 
 function emit(event: string, fields: Record<string, unknown> = {}, at = performance.now()): void {
   console.log(JSON.stringify({ event, t: Number(((at - mark) / 1000).toFixed(3)), ...fields }));
@@ -129,7 +131,9 @@ room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
     case "heard": return emit("heard", { text: m.text });
     case "sentence": return emit("sentence", { turnId: m.turnId, index: m.index, text: m.text });
     case "speaking": return emit("speaking", { turnId: m.turnId, index: m.index });
-    case "status": return emit("status", { agent: m.agent, thinking: m.thinking, jobs: m.jobs, audio: m.audio });
+    case "status":
+      greeted.resolve();
+      return emit("status", { agent: m.agent, thinking: m.thinking, jobs: m.jobs, audio: m.audio });
     case "error": return emit("error", { text: m.text });
     case "narration": return emit("narration", { text: m.text });
     case "approvalDone": return emit("approvalDone", { id: m.id, allow: m.allow, by: m.by });
@@ -229,8 +233,10 @@ async function play(pcm: Int16Array): Promise<void> {
   await Bun.sleep(SILENCE_AFTER_MS);
 }
 
-// the voice subscribes a moment after the track appears; anything said before that is lost
-await Bun.sleep(1500);
+// anything said before the voice has seen us is lost: wait for its status, then a moment for it to subscribe
+const seen = await Promise.race([greeted.promise.then(() => true), Bun.sleep(10_000).then(() => false)]);
+if (!seen) console.error("fake-phone: no status from the voice after 10 s; playing anyway");
+await Bun.sleep(300);
 
 for (const [i, pcm] of clips.entries()) {
   if (i > 0) {
