@@ -40,6 +40,10 @@ for entry in "${ARCHIVES[@]}"; do
   fi
   echo "fetch $dir"
   curl -fsSL --retry 3 -o "$dir.tar.bz2.part" "$url"
-  tar -xjf "$dir.tar.bz2.part" -C models
+  # Extract beside the target, then rename: an interrupted run never leaves a partial $dir behind.
+  tmp="$(mktemp -d models/.extract.XXXXXX)"
+  tar -xjf "$dir.tar.bz2.part" -C "$tmp"
+  mv "$tmp/$(basename "$dir")" "$dir"
+  rmdir "$tmp"
   rm "$dir.tar.bz2.part"
 done

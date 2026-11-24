@@ -97,9 +97,11 @@ def _not_cached_errors() -> tuple[type[Exception], ...]:
 class SherpaEngine:
     """sherpa-onnx offline recogniser on the CPU provider. Ignores the prompt."""
 
-    def __init__(self, name: str, directory: str, build: Callable[[Path], object], threads: int = 4):
+    def __init__(self, name: str, directory: str, build: Callable[[Path], object],
+                 required: tuple[str, ...], threads: int = 4):
         self.name = name
         self.dir = MODELS / directory
+        self.required = required
         self._build = build
         self.threads = threads
         self.device = "cpu"
@@ -108,6 +110,9 @@ class SherpaEngine:
     def load(self) -> None:
         if not self.dir.is_dir():
             raise ModelMissing(self.dir)
+        for filename in self.required:
+            if not (self.dir / filename).is_file():
+                raise ModelMissing(self.dir / filename)
         self._rec = self._build(self.dir)
 
     def transcribe(self, audio: np.ndarray, prompt: str | None) -> str:
@@ -115,6 +120,12 @@ class SherpaEngine:
         stream.accept_waveform(16000, audio)
         self._rec.decode_stream(stream)
         return stream.result.text.strip()
+
+
+PARAKEET_FILES = ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt")
+MOONSHINE_FILES = (
+    "preprocess.onnx", "encode.int8.onnx", "uncached_decode.int8.onnx", "cached_decode.int8.onnx", "tokens.txt",
+)
 
 
 def _parakeet(threads: int):
@@ -145,7 +156,9 @@ def _moonshine(threads: int):
 ENGINES: dict[str, Callable[[], SttEngine]] = {
     **{f"whisper-{s}.en": (lambda s=s: WhisperEngine(f"{s}.en")) for s in ("tiny", "base", "small", "medium")},
     "parakeet-tdt-0.6b": lambda: SherpaEngine(
-        "parakeet-tdt-0.6b", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8", _parakeet(4)),
+        "parakeet-tdt-0.6b", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8", _parakeet(4),
+        PARAKEET_FILES),
     "moonshine-base": lambda: SherpaEngine(
-        "moonshine-base", "sherpa-onnx-moonshine-base-en-int8", _moonshine(4)),
+        "moonshine-base", "sherpa-onnx-moonshine-base-en-int8", _moonshine(4),
+        MOONSHINE_FILES),
 }
