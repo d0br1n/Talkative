@@ -85,6 +85,10 @@ def visible_text(node, skip=None):
             return
         if n.tag in ("script", "style"):
             return
+        if n.tag == "meta" and n.attrs.get("name") in ("description", "twitter:description"):
+            out.append(n.attrs.get("content", ""))
+        if n.tag == "meta" and (n.attrs.get("property") or "").endswith(":description"):
+            out.append(n.attrs.get("content", ""))
         for key in ("aria-label", "alt", "title", "placeholder"):
             if n.attrs.get(key):
                 out.append(n.attrs[key])
@@ -230,3 +234,8 @@ def test_document_basics():
     metas = [m.attrs for m in find_all(root, "meta")]
     assert any(m.get("name") == "viewport" for m in metas)
     assert any(m.get("name") == "color-scheme" and m.get("content") == "light dark" for m in metas)
+
+
+def test_visible_text_includes_meta_description():
+    root = parse('<html><head><meta name="description" content="Available now, 3 seconds"></head></html>')
+    assert "available now" in visible_text(root).lower()
