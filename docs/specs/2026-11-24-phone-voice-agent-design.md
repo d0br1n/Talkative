@@ -176,7 +176,12 @@ The project is a **new repository**. It is not a fork of either source, so neith
 
 ### 6.8 Permissions and the gate
 
-Sidetone's model (ADR 0009): the coordinator runs permissively inside the project, and a defined list of risky actions requires the spoken word **"continue"** (not "yes"). The gate fails closed.
+**Approvals happen in the app first** (owner's decision, 2026-11-24).
+- **Now:** every permission request is shown on the phone as a card with Approve and Deny, and the voice says once that approval is needed on the phone.
+- **Later:** the spoken word "continue" stays switched off for approvals until the benchmark (8.1) and real use confirm that recognition is accurate. After that it may be enabled as a second way to approve, alongside the app.
+- **Mechanism:** in-app approvals use Claude Code's own permission prompts (`--permission-prompt-tool stdio`, which sends `can_use_tool` requests to the agent host) on top of `--permission-mode acceptEdits`. Milestone 2 verifies that a subagent's permission requests arrive the same way. If they don't, the `PreToolUse` hook below becomes the mechanism.
+
+The original spoken-gate design (sidetone's model, ADR 0009): the coordinator runs permissively inside the project, and a defined list of risky actions requires the spoken word **"continue"** (not "yes"). The gate fails closed. The holding rules below apply to in-app approvals too.
 
 How a gated action is held (my call):
 - The gated tool call is **held** (blocked), not denied, while the owner is asked.
@@ -239,5 +244,6 @@ The list of gated actions is configurable. It starts from sidetone's spec 10.7, 
 - Accuracy bar: commands and "continue" recognised in ≥ 95% of clips, ≤ 10% word error rate. If the CPU fails it, fall back to the single-machine GPU shape, and the owner decides.
 - The coordinator starts with the agent host; a conversation continues until "new conversation"; project switching restarts the one coordinator in another configured directory.
 - Gated actions are held, not denied, for up to 30 minutes (the timer keeps running during dropouts), re-asked on rejoin, and enforced through a `PreToolUse` hook so subagents are covered too.
+- (Updated 2026-11-24 by the owner) Approvals are given in the app, not by voice, until recognition accuracy is confirmed; see 6.8.
 - No compatibility with sidetone's Android app; the phone protocol may be redesigned.
 - A background job is reported to the owner by waking the coordinator with a short synthetic turn.
