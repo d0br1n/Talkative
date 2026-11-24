@@ -1,0 +1,15 @@
+{
+  "name": "talkative",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@livekit/rtc-node": "^1.2.3",
+    "livekit-server-sdk": "^2.20.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.5"
+  }
+}
