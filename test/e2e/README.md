@@ -39,6 +39,7 @@ test prints its path.
     bun scripts/fake-phone.ts --pair http://127.0.0.1:7890 --code "$(bun src/main.ts code)" \
       --text "What is two plus two?" --wait 30
 
-It prints one JSON line per event (`heard`, `firstAudio`, `sentence`, `speaking`, `status`,
+Each successful pair changes the code (the test reads the code file before every phone it
+starts). It prints one JSON line per event (`heard`, `firstAudio`, `sentence`, `speaking`, `status`,
 `narration`, `approval`, `decide`, `approvalDone`, ...), with `t` in seconds since the end of
 the utterance it just played or the typed turn it just sent.
