@@ -4,6 +4,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ensureHome, homeDir, writeSecretFile } from "../config";
 
+/** The livekit-server image, pinned: the version the end-to-end test runs against. */
+export const LIVEKIT_IMAGE = "livekit/livekit-server:v1.13.11";
+
 export interface Keys {
   apiKey: string;
   apiSecret: string;
@@ -23,7 +26,12 @@ export function loadOrCreateKeys(path = join(homeDir(), "keys.json")): Keys {
   return keys;
 }
 
-/** What livekit-server needs so that it and the voice agree. `node_ip` is the address the phone will use. */
+/**
+ * What livekit-server needs so that it and the voice agree. `node_ip` is the address the phone will use.
+ * `rtc.ips.includes` keeps the ICE UDP sockets on the bind address alone (without it they open on every
+ * interface, LAN and public IPv6 included); the loopback flag lets that address be 127.0.0.1. The ICE TCP
+ * port (7881) still listens on every address: livekit has no setting to bind it.
+ */
 export function livekitYaml(keys: Keys, bind: string): string {
   return [
     "port: 7880",
@@ -34,6 +42,9 @@ export function livekitYaml(keys: Keys, bind: string): string {
     "  port_range_end: 50019",
     `  node_ip: ${bind}`,
     "  use_external_ip: false",
+    "  enable_loopback_candidate: true",
+    "  ips:",
+    `    includes: ["${bind}/32"]`,
     "keys:",
     `  ${keys.apiKey}: ${keys.apiSecret}`,
     "",
@@ -48,7 +59,7 @@ export function writeLivekitConfig(bind: string): { path: string; dockerCommand:
   const dockerCommand = [
     "docker run -d --name livekit --network host --restart unless-stopped \\",
     `  -v ${path}:/livekit.yaml \\`,
-    "  livekit/livekit-server --config /livekit.yaml",
+    `  ${LIVEKIT_IMAGE} --config /livekit.yaml`,
   ].join("\n");
   return { path, dockerCommand };
 }

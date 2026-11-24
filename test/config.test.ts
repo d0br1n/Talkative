@@ -73,11 +73,12 @@ test("writeLivekitConfig writes yaml and keys.json mode 600", () => {
   expect(yaml).toContain("port_range_start: 50000");
   expect(yaml).toContain("port_range_end: 50019");
   expect(yaml).toContain("node_ip: 100.64.0.1");
+  expect(yaml).toContain('includes: ["100.64.0.1/32"]');
   expect(yaml).toContain('bind_addresses: ["100.64.0.1"]');
   expect(yaml).toContain(`${keys.apiKey}: ${keys.apiSecret}`);
   expect(r.dockerCommand).toContain("--network host");
   expect(r.dockerCommand).toContain("--restart unless-stopped");
-  expect(r.dockerCommand).toContain("livekit/livekit-server");
+  expect(r.dockerCommand).toContain("livekit/livekit-server:v");
   expect(r.dockerCommand).not.toContain(keys.apiSecret);
   // keys are kept on a second call
   writeLivekitConfig("100.64.0.1");

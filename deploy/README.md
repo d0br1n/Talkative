@@ -22,6 +22,14 @@ Run `init` once with `--bind <this-host-tailscale-ip>` (so a phone can reach it)
 (local testing only), then `livekit`, and enable both units on the same host. The agent dials
 `ws://<bind>:7891`.
 
+## LiveKit
+
+The printed command runs `livekit/livekit-server:v1.13.11`, the version the end-to-end test
+(`test/e2e/README.md`) runs against; change the tag deliberately and rerun that test.
+`livekit.yaml` binds the signalling port (7880) and the ICE UDP ports (50000-50019) to `bind`
+alone. The ICE TCP port, 7881, still listens on every address: livekit has no setting for it.
+Keep it closed to anything but the tailnet with the host's firewall.
+
 ## Pairing
 
 The phone posts the three-word code to `http://<bind>:7890/pair` and receives a 30-day room token.
