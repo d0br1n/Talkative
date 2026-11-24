@@ -5,6 +5,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+import numpy as np
+
 from bench.stt import MODELS, ModelMissing
 
 MAX_TTS_FIRST_AUDIO_P50_S = 0.5
@@ -44,7 +46,8 @@ class SherpaTts:
         self._tts = self._build(self.dir)
         self._generate(WARMUP_SENTENCE)  # untimed warm-up
 
-    def _generate(self, sentence: str) -> float:
+    def _run(self, sentence: str):
+        """Generate once; returns (seconds to first callback, generated audio)."""
         """Seconds from the call to the first callback.
 
         The offline engines call back only after the whole sentence is synthesised, so this
@@ -59,13 +62,21 @@ class SherpaTts:
                 first.append(time.perf_counter() - start)
             return 1
 
-        self._tts.generate(sentence, sid=self.sid, speed=1.0, callback=on_chunk)
+        audio = self._tts.generate(sentence, sid=self.sid, speed=1.0, callback=on_chunk)
         if not first:
             raise RuntimeError(f"no audio produced for {sentence!r}")
-        return first[0]
+        return first[0], audio
+
+    def _generate(self, sentence: str) -> float:
+        return self._run(sentence)[0]
 
     def first_audio_s(self, sentence: str) -> float:
         return self._generate(sentence)
+
+    def synth(self, text: str) -> tuple[np.ndarray, int]:
+        """The whole utterance as float32 samples and its sample rate."""
+        audio = self._run(text)[1]
+        return np.asarray(audio.samples, dtype=np.float32), int(audio.sample_rate)
 
 
 def _kokoro(d: Path):
