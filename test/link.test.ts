@@ -271,9 +271,84 @@ describe("coordinator over the link", () => {
     await until(() => has(second.got, { t: "approval", id: "req-1" }));
     await new Promise((r) => setTimeout(r, 150));
     expect(second.got.filter((m) => m.t === "approval").length).toBe(1);
+    // the agent's state comes first, so the voice never has to assume it
+    expect(second.got.findIndex((m) => m.t === "agent" && m.state === "ready")).toBeGreaterThan(-1);
+    expect(second.got.findIndex((m) => m.t === "agent")).toBeLessThan(second.got.findIndex((m) => m.t === "approval"));
 
     second.s.send({ t: "decide", id: "req-1", allow: true });
     await until(() => has(second.got, { t: "approvalDone", id: "req-1", allow: true, by: "owner" }));
     await until(() => has(second.got, { t: "turnEnd", turnId: "t1", ok: true }));
+  });
+});
+
+describe("final review fixes", () => {
+  test("a voice that comes back while the coordinator is crashed is told so on the welcome", async () => {
+    const first = await server();
+    const port = first.s.port;
+    const { c: lc, states } = client(port);
+    let n = 0;
+    const { spawn } = fakeSpawn("crash-on-start");
+    const errs = spyConsoleError();
+    const coord = new Coordinator({
+      spawn, cwd: process.cwd(), model: "sonnet", effort: "default", emit: (m) => lc.send(m),
+      // the second crash's backoff never ends: the coordinator stays crashed
+      sleep: () => (++n >= 2 ? new Promise<void>(() => {}) : Promise.resolve()),
+    });
+    coords.push(coord);
+    connectAgent(coord, lc);
+    lc.start();
+    coord.start();
+    await until(() => has(first.got, { t: "agent", state: "crashed" }), 8000);
+    first.s.stop();
+    await until(() => states.includes("down"));
+    const second = await server(port);
+    await until(() => second.got.length >= 1);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(second.got).toEqual([{ t: "agent", state: "crashed", detail: "error: login expired" }]);
+    expect(errs()).toContain("claude exited with code 1");
+  });
+
+  test("the client logs a 4001 refusal once per failure streak, never the secret", async () => {
+    const { s } = await server();
+    const errs = spyConsoleError();
+    const { c } = client(s.port, "wrong-secret-xyz");
+    c.start();
+    await new Promise((r) => setTimeout(r, 300));
+    const lines = errs().split("\n");
+    expect(lines.filter((l) => l.startsWith("agent:") && l.includes("4001"))).toHaveLength(1);
+    expect(lines.filter((l) => l.startsWith("voice:") && l.includes("4001"))).toHaveLength(1);
+    expect(errs()).not.toContain("wrong-secret-xyz");
+    expect(errs()).not.toContain(SECRET);
+  });
+
+  test("a good link ends the streak: the next refusal is logged again; 4002 is logged on both ends", async () => {
+    const { s } = await server();
+    const errs = spyConsoleError();
+    expect(await rawSocket(s.port, { t: "hello", version: LINK_VERSION, secret: "nope" }).closed).toBe(4001);
+    expect(await rawSocket(s.port, { t: "hello", version: LINK_VERSION, secret: "nope" }).closed).toBe(4001);
+    const good = client(s.port);
+    good.c.start();
+    await until(() => good.states.includes("up"));
+    expect(await rawSocket(s.port, { t: "hello", version: LINK_VERSION, secret: "nope" }).closed).toBe(4001);
+    expect(await rawSocket(s.port, { t: "hello", version: LINK_VERSION + 1, secret: SECRET }).closed).toBe(4002);
+    const voice = errs().split("\n").filter((l) => l.startsWith("voice:"));
+    expect(voice.filter((l) => l.includes("4001"))).toHaveLength(2);
+    expect(voice.filter((l) => l.includes("4002"))).toHaveLength(1);
+
+    const fake = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: (req, srv) => (srv.upgrade(req) ? undefined : new Response("no")),
+      websocket: { message: (ws) => ws.close(4002, "version mismatch") },
+    });
+    try {
+      const { c } = client(fake.port!);
+      c.start();
+      await new Promise((r) => setTimeout(r, 300));
+      expect(errs().split("\n").filter((l) => l.startsWith("agent:") && l.includes("4002"))).toHaveLength(1);
+    } finally {
+      for (const c of clients.splice(0)) c.stop();
+      fake.stop(true);
+    }
   });
 });

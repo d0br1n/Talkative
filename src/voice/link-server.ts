@@ -18,6 +18,8 @@ export class LinkServer {
   private agent: Sock | null = null;
   private msgCb: (m: AgentToVoice) => void = () => {};
   private connCb: (connected: boolean) => void = () => {};
+  /** refusals already logged since the last good link */
+  private readonly refused = new Set<number>();
 
   constructor(private readonly o: { host: string; port: number; secret: string }) {}
 
@@ -47,7 +49,7 @@ export class LinkServer {
         maxPayloadLength: 1_048_576,
         open: (ws) => {
           ws.data.timer = setTimeout(() => {
-            if (!ws.data.authed) ws.close(4001, "unauthorized");
+            if (!ws.data.authed) this.refuse(ws, 4001, "no hello in time");
           }, AUTH_TIMEOUT_MS);
         },
         message: (ws, raw) => this.onRaw(ws, raw),
@@ -77,18 +79,29 @@ export class LinkServer {
     return true;
   }
 
+  /** Close an unauthenticated socket; the first refusal of each code in a streak is logged (never the secret). */
+  private refuse(ws: Sock, code: 4001 | 4002, why: string): void {
+    if (!this.refused.has(code)) {
+      this.refused.add(code);
+      console.error(`voice: refused an agent link (${code}): ${why}; further refusals are not logged until a good link`);
+    }
+    ws.close(code, code === 4001 ? "unauthorized" : "version mismatch");
+  }
+
   private onRaw(ws: Sock, raw: string | Buffer): void {
     let m: AgentToVoice;
     try {
       m = decodeAgentToVoice(typeof raw === "string" ? raw : raw.toString("utf8"));
     } catch {
-      if (!ws.data.authed) ws.close(4001, "unauthorized");
+      if (!ws.data.authed) this.refuse(ws, 4001, "a malformed first message");
       return;
     }
     if (!ws.data.authed) {
-      if (m.t !== "hello" || !secretMatches(m.secret, this.o.secret)) return void ws.close(4001, "unauthorized");
-      if (m.version !== LINK_VERSION) return void ws.close(4002, "version mismatch");
+      if (m.t !== "hello") return this.refuse(ws, 4001, "no hello");
+      if (!secretMatches(m.secret, this.o.secret)) return this.refuse(ws, 4001, "wrong link secret");
+      if (m.version !== LINK_VERSION) return this.refuse(ws, 4002, `link version ${m.version}, this voice speaks ${LINK_VERSION}`);
       ws.data.authed = true;
+      this.refused.clear();
       clearTimeout(ws.data.timer);
       const old = this.agent;
       this.agent = ws;

@@ -2,6 +2,11 @@ import type { Coordinator } from "./coordinator";
 import { decodeVoiceToAgent, encodeLink, LINK_VERSION, type AgentToVoice, type VoiceToAgent } from "../shared/link";
 
 const REPLACED = 4003;
+/** Why the voice refused the link, by close code: logged once per failure streak. */
+const REFUSED: Record<number, string> = {
+  4001: "wrong link secret (4001): copy linkSecret from the voice host's config.json",
+  4002: `link version mismatch (4002): this agent speaks version ${LINK_VERSION}`,
+};
 const BUFFER_CAP = 100;
 const BUFFERED: ReadonlySet<AgentToVoice["t"]> = new Set(["turnEnd", "job", "agent", "approvalDone"]);
 
@@ -19,6 +24,8 @@ export class LinkClient {
   private welcomeCbs: (() => void)[] = [];
   private msgCb: (m: VoiceToAgent) => void;
   private readonly backoff: (n: number) => number;
+  /** refusals already logged since the last welcome */
+  private readonly refused = new Set<number>();
 
   constructor(
     private readonly o: {
@@ -97,6 +104,7 @@ export class LinkClient {
 
   private welcomed(): void {
     this.attempt = 0;
+    this.refused.clear();
     this.up = true;
     this.o.onState("up");
     const queued = this.buf;
@@ -110,6 +118,10 @@ export class LinkClient {
     this.ws = null;
     this.goDown();
     if (!this.running) return;
+    if (REFUSED[code] && !this.refused.has(code)) {
+      this.refused.add(code);
+      console.error(`agent: the voice refused the link: ${REFUSED[code]}; still retrying`);
+    }
     if (code === REPLACED) {
       this.running = false;
       console.error("replaced by a newer agent; not reconnecting");
@@ -123,7 +135,7 @@ export class LinkClient {
   }
 }
 
-/** Route voice messages to the coordinator; on every welcome, re-send its pending approvals. */
+/** Route voice messages to the coordinator; on every welcome, send its last state, then re-send its pending approvals. */
 export function connectAgent(coordinator: Coordinator, client: LinkClient): void {
   client.onMessage((m) => {
     switch (m.t) {
@@ -135,6 +147,9 @@ export function connectAgent(coordinator: Coordinator, client: LinkClient): void
     }
   });
   client.onWelcome(() => {
+    // a voice that restarted knows nothing: it learns the agent's state from this, never from the link alone
+    const state = coordinator.agentState;
+    if (state) client.send(state);
     for (const a of coordinator.pendingApprovals()) client.send(a);
   });
 }
