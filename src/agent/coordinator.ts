@@ -34,7 +34,8 @@ export class Coordinator {
 
   private session: string | null = null;
   private cur: ClaudeProcess | null = null;
-  private crashes = 0;
+  private readonly loggedErrors = new Set<string>();
+  private readonly tickMs: number;
   private ticker: ReturnType<typeof setInterval> | null = null;
 
   // turn state
@@ -55,6 +56,8 @@ export class Coordinator {
     emit: (m: AgentToVoice) => void;
     approvalTimeoutMs?: number;
     now?: () => number;
+    tickMs?: number;
+    sleep?: (ms: number) => Promise<void>;
   }) {
     this.spawn = o.spawn;
     this.cwd = o.cwd;
@@ -63,9 +66,12 @@ export class Coordinator {
     this.emit = o.emit;
     this.approvalTimeoutMs = o.approvalTimeoutMs ?? 1_800_000;
     this.now = o.now ?? Date.now;
+    this.tickMs = o.tickMs ?? 1000;
     this.supervisor = new Supervisor({
       start: () => this.launch(),
       onCrash: (_code, stderr) => this.crashed(stderr),
+      sleep: o.sleep,
+      now: o.now,
     });
   }
 
@@ -75,7 +81,7 @@ export class Coordinator {
 
   start(): void {
     this.emit({ t: "agent", state: "starting" });
-    this.ticker = setInterval(() => this.tick(), 1000);
+    this.ticker = setInterval(() => this.tick(), this.tickMs);
     (this.ticker as any).unref?.();
     this.supervisor.run();
   }
@@ -154,15 +160,25 @@ export class Coordinator {
 
   private async read(p: ClaudeProcess): Promise<void> {
     try {
-      for await (const ev of p.lines) if (this.cur === p) this.handle(ev);
+      for await (const ev of p.lines) {
+        if (this.cur !== p) continue;
+        try {
+          this.handle(ev);
+        } catch (err) {
+          const type = String(ev?.type ?? "unknown");
+          if (!this.loggedErrors.has(type)) {
+            this.loggedErrors.add(type);
+            console.error(`coordinator: error handling "${type}" event:`, err);
+          }
+        }
+      }
     } catch {}
   }
 
   private crashed(stderr: string): void {
     this.cur = null;
     this.resetState("the agent process exited");
-    this.crashes++;
-    if (this.crashes === 1) this.emit({ t: "agent", state: "restarting" });
+    if (this.supervisor.failureCount <= 1) this.emit({ t: "agent", state: "restarting" });
     else {
       const last = stderr.split("\n").map((l) => l.trim()).filter(Boolean).pop();
       this.emit({ t: "agent", state: "crashed", ...(last ? { detail: last } : {}) });
@@ -204,7 +220,6 @@ export class Coordinator {
       case "system":
         if (ev.subtype === "init") {
           if (typeof ev.session_id === "string" && ev.session_id) this.session = ev.session_id;
-          this.crashes = 0;
           this.emit({ t: "agent", state: "ready" });
         }
         return;

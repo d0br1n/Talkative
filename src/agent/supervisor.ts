@@ -33,6 +33,11 @@ export class Supervisor {
     return Math.min(1000 * 2 ** (failures - 1), 60_000);
   }
 
+  /** Consecutive failures; resets after 60 s of uptime or an intentional restart. */
+  get failureCount(): number {
+    return this.failures;
+  }
+
   get current(): ClaudeProcess | null {
     return this.proc;
   }

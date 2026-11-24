@@ -223,3 +223,47 @@ describe("approvals", () => {
     expect(approvalDecisions(log).length).toBe(0);
   });
 });
+
+describe("robustness", () => {
+  test("a throwing emit does not stop later events", async () => {
+    const out: AgentToVoice[] = [];
+    const { spawn } = fakeSpawn("text-turn");
+    const errs = console.error;
+    console.error = () => {};
+    const c = new Coordinator({
+      spawn, cwd: process.cwd(), model: "sonnet", effort: "default",
+      emit: (m) => { if (m.t === "delta" && m.text === "Hello") throw new Error("socket closed"); out.push(m); },
+    });
+    live.push(c);
+    try {
+      c.start();
+      await until(() => has(out, { t: "agent", state: "ready" }));
+      c.turn("t1", "hi", "brief");
+      await until(() => has(out, { t: "turnEnd" }));
+      expect(has(out, { t: "delta", text: " there." })).toBe(true);
+      expect(has(out, { t: "blockEnd" })).toBe(true);
+    } finally {
+      console.error = errs;
+    }
+  });
+
+  test("the interval ticker expires approvals without decide/pendingApprovals", async () => {
+    let t = 0;
+    const m = make("approval", { now: () => t, approvalTimeoutMs: 1000, tickMs: 10 });
+    m.c.start();
+    await until(() => has(m.out, { t: "agent", state: "ready" }));
+    m.c.turn("t1", "push", "brief");
+    await until(() => has(m.out, { t: "approval" }));
+    t = 1000;
+    await until(() => has(m.out, { t: "approvalDone", id: "req-1", allow: false, by: "timeout" }));
+    await until(() => approvalDecisions(m.log).length === 1);
+    expect(approvalDecisions(m.log)[0]!.response).toEqual({ behavior: "deny", message: DENIED_BY_TIMEOUT });
+  });
+
+  test("a process that inits then dies repeatedly reports crashed", async () => {
+    const m = make("crash-after-init", { sleep: async () => {} });
+    m.c.start();
+    await until(() => has(m.out, { t: "agent", state: "crashed", detail: "error: died after init" }));
+    expect(has(m.out, { t: "agent", state: "restarting" })).toBe(true);
+  });
+});

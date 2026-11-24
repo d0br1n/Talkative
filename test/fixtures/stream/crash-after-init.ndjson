@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"sess-1","model":"sonnet"}
+{"fake":"exit","code":1,"stderr":"error: died after init"}
