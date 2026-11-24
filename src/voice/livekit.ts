@@ -27,6 +27,7 @@ export function loadOrCreateKeys(path = join(homeDir(), "keys.json")): Keys {
 export function livekitYaml(keys: Keys, bind: string): string {
   return [
     "port: 7880",
+    `bind_addresses: ["${bind}"]`,
     "rtc:",
     "  tcp_port: 7881",
     "  port_range_start: 50000",
@@ -45,7 +46,7 @@ export function writeLivekitConfig(bind: string): { path: string; dockerCommand:
   const path = join(ensureHome(), "livekit.yaml");
   writeSecretFile(path, livekitYaml(keys, bind));
   const dockerCommand = [
-    "docker run -d --name livekit --network host \\",
+    "docker run -d --name livekit --network host --restart unless-stopped \\",
     `  -v ${path}:/livekit.yaml \\`,
     "  livekit/livekit-server --config /livekit.yaml",
   ].join("\n");

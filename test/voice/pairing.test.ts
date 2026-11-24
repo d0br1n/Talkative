@@ -68,3 +68,11 @@ test("binds only the given address", async () => {
   expect((await fetch(`http://127.0.0.2:${p!.port}/pair`, { method: "POST", body: "{}" })).status).toBe(403);
   await expect(post("x")).rejects.toThrow(); // 127.0.0.1 is not listening on that port
 });
+
+test("a body over 1 KiB is 413", async () => {
+  make();
+  await p!.start();
+  const r = await fetch(`http://127.0.0.1:${p!.port}/pair`, { method: "POST", body: JSON.stringify({ code: "x".repeat(2000) }) });
+  expect(r.status).toBe(413);
+  expect((await post(p!.code)).status).toBe(200);
+});

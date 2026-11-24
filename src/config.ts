@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Effort, Verbosity } from "./shared/link";
@@ -45,8 +45,24 @@ function refuseWildcard(bind: string): void {
   }
 }
 
-export function initConfig(o: { bind: string; project: string }): Config {
+export const codePath = (): string => join(homeDir(), "code");
+
+/** Empty the pairing-code file, so a stale code is never printed. */
+export function clearCode(): void {
+  ensureHome();
+  writeSecretFile(codePath(), "");
+}
+
+export function writeCode(code: string): void {
+  ensureHome();
+  writeSecretFile(codePath(), `${code}\n`);
+}
+
+export function initConfig(o: { bind: string; project: string; force?: boolean }): Config {
   refuseWildcard(o.bind);
+  if (!o.force && existsSync(join(homeDir(), "config.json"))) {
+    throw new Error("config.json already exists; --force overwrites it and rotates linkSecret (a copied laptop config stops working)");
+  }
   if (!o.bind) throw new Error("config: bind is required");
   const config: Config = {
     linkSecret: randomBytes(32).toString("hex"),

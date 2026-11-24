@@ -14,6 +14,7 @@ const WORDS = (
 ).split(" ");
 
 const TOKEN_TTL = "720h"; // 30 days
+const MAX_BODY = 1024;
 const MAX_FAILURES = 5;
 const WINDOW_MS = 60_000;
 const LOCK_MS = 60_000;
@@ -74,8 +75,11 @@ export class Pairing {
     const t = this.now();
     if (t < this.lockedUntil) return new Response("locked", { status: 429 });
     let given = "";
+    if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY) return new Response("too large", { status: 413 });
+    const text = await req.text();
+    if (Buffer.byteLength(text) > MAX_BODY) return new Response("too large", { status: 413 });
     try {
-      const body = (await req.json()) as { code?: unknown };
+      const body = JSON.parse(text) as { code?: unknown };
       if (typeof body.code === "string") given = body.code.trim().toLowerCase().replace(/\s+/g, " ");
     } catch {}
     const a = Buffer.from(given);

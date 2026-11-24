@@ -1,14 +1,10 @@
 #!/usr/bin/env bun
-import { chmodSync, existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { homeDir, initConfig, loadConfig } from "./config";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { flag, UsageError } from "./cli";
+import { codePath, homeDir, initConfig, loadConfig } from "./config";
 
-const USAGE = "usage: bun src/main.ts <init --bind <ip> --project <dir> | livekit | voice | agent | code>";
-
-function flag(args: string[], name: string): string | undefined {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 ? args[i + 1] : undefined;
-}
+const USAGE = "usage: bun src/main.ts <init --bind <ip> --project <dir> [--force] | livekit | voice | agent | code>";
 
 async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
@@ -17,8 +13,9 @@ async function main(): Promise<number> {
       const bind = flag(rest, "bind");
       const project = flag(rest, "project");
       if (!bind || !project) return fail(USAGE);
-      initConfig({ bind, project });
-      console.log(`wrote ${join(homeDir(), "config.json")} (bind ${bind}, project ${project})`);
+      const abs = resolve(project);
+      initConfig({ bind, project: abs, force: rest.includes("--force") });
+      console.log(`wrote ${resolve(homeDir(), "config.json")} (bind ${bind}, project ${abs})`);
       return 0;
     }
     case "livekit": {
@@ -29,19 +26,19 @@ async function main(): Promise<number> {
     }
     case "voice": {
       const { runVoice } = await import("./voice/service");
-      await runVoice(loadConfig());
-      return 0;
+      return await runVoice(loadConfig());
     }
     case "agent": {
       const { runAgent } = await import("./agent/service");
-      await runAgent(loadConfig());
-      return 0;
+      return await runAgent(loadConfig());
     }
     case "code": {
-      const p = join(homeDir(), "code");
-      if (!existsSync(p)) return fail("no pairing code: is `voice` running?");
-      chmodSync(p, 0o600);
-      process.stdout.write(readFileSync(p, "utf8"));
+      let code = "";
+      try {
+        code = readFileSync(codePath(), "utf8").trim();
+      } catch {}
+      if (!code) return fail("no pairing code: is `voice` running?");
+      console.log(code);
       return 0;
     }
     default:
@@ -58,5 +55,5 @@ try {
   process.exit(await main());
 } catch (e) {
   console.error(`talkative: ${(e as Error).message}`);
-  process.exit(1);
+  process.exit(e instanceof UsageError ? 2 : 1);
 }

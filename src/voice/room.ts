@@ -10,23 +10,40 @@ import {
 import { decodeFromPhone, encodePhone, type FromPhone, type ToPhone } from "../shared/phone";
 import type { PhonePort, Speaker } from "./mouth";
 
+/** The part of the SDK's Room this file uses; a test gives its own. */
+export type LkRoomLike = Pick<LkRoom, "on" | "connect" | "disconnect" | "remoteParticipants" | "localParticipant">;
+
 const RATE = 48_000;
 const FRAME = (RATE * 20) / 1000;
 const PHONE = "phone";
 
 export class Room {
-  private readonly room = new LkRoom();
-  private readonly source = new AudioSource(RATE, 1);
+  private readonly room: LkRoomLike;
+  private lostCb: () => void = () => {};
+  private sourceInst: AudioSource | null = null;
+  private get source(): AudioSource {
+    return (this.sourceInst ??= new AudioSource(RATE, 1));
+  }
   private frameCb: (f: Int16Array) => void = () => {};
   private phoneCb: (m: FromPhone) => void = () => {};
   private goneCb: () => void = () => {};
   /** the phone's audio track sids, oldest first; the newest feeds the ear */
   private tracks: string[] = [];
   private closed = false;
+  private joined = false;
   private sending: Promise<void> = Promise.resolve();
   private cur: { cancelled: boolean; done: () => void } | null = null;
 
-  constructor(private readonly o: { url: string; token: string }) {}
+  /** `token` is called on every join attempt, so a retry never reuses an old token. `lk` is a test seam. */
+  constructor(private readonly o: { url: string; token: () => Promise<string>; lk?: LkRoomLike }) {
+    this.room = o.lk ?? (new LkRoom() as unknown as LkRoomLike);
+    this.register();
+  }
+
+  /** The SDK gave up on the connection (it has already retried). */
+  onLost(cb: () => void): void {
+    this.lostCb = cb;
+  }
 
   onFrame(cb: (frame48k: Int16Array) => void): void {
     this.frameCb = cb;
@@ -97,6 +114,7 @@ export class Room {
     for (let wait = 500; ; wait = Math.min(wait * 2, 5000)) {
       try {
         await this.connect();
+        this.joined = true;
         return;
       } catch (e) {
         if (Date.now() + wait >= until) throw e;
@@ -106,7 +124,8 @@ export class Room {
     }
   }
 
-  private async connect(): Promise<void> {
+  /** Handlers go on once, here: a retried connect() must not add them again. */
+  private register(): void {
     const r = this.room;
     r.on(RoomEvent.DataReceived, (payload: Uint8Array, p?: RemoteParticipant) => {
       if (p?.identity !== PHONE) return;
@@ -131,16 +150,25 @@ export class Room {
       this.tracks = [];
       this.goneCb();
     });
-    await r.connect(this.o.url, this.o.token, { autoSubscribe: true, dynacast: false });
+    r.on(RoomEvent.Disconnected, () => {
+      if (this.joined && !this.closed) this.lostCb();
+    });
+  }
+
+  private async connect(): Promise<void> {
+    const r = this.room;
+    await r.connect(this.o.url, await this.o.token(), { autoSubscribe: true, dynacast: false });
     // a phone that was in the room first never fires the events above
     for (const p of r.remoteParticipants.values()) {
       if (p.identity !== PHONE) continue;
       for (const pub of p.trackPublications.values()) if (pub.track) this.pump(pub.track as RemoteTrack);
     }
+    const lp = r.localParticipant;
+    if (!lp) return;
     const track = LocalAudioTrack.createAudioTrack("voice", this.source);
     const options = new TrackPublishOptions();
     options.source = TrackSource.SOURCE_MICROPHONE;
-    await r.localParticipant?.publishTrack(track, options);
+    await lp.publishTrack(track, options);
   }
 
   /** One track feeds the ear: the newest. An older one stays subscribed and its frames are dropped. */

@@ -8,9 +8,10 @@ Wants=network-online.target
 
 [Service]
 WorkingDirectory=%h/Talkative
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.bun/bin/bun src/main.ts agent
 Restart=on-failure
-RestartSec=3
+RestartSec=2
 
 [Install]
 WantedBy=default.target
