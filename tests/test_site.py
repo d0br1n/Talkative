@@ -239,3 +239,10 @@ def test_document_basics():
 def test_visible_text_includes_meta_description():
     root = parse('<html><head><meta name="description" content="Available now, 3 seconds"></head></html>')
     assert "available now" in visible_text(root).lower()
+
+
+def test_mark_js_makes_no_network_or_storage_calls():
+    js = read_site_files().get("mark.js")
+    assert js is not None, "site/mark.js missing"
+    for banned in ("http", "fetch(", "XMLHttpRequest", "localStorage"):
+        assert banned not in js, f"mark.js uses {banned}"
