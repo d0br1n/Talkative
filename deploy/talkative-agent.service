@@ -1,14 +1,19 @@
 # systemd user unit: the agent side (runs the Claude CLI in your project).
 # Install: copy to ~/.config/systemd/user/, edit WorkingDirectory, then
 #   systemctl --user daemon-reload && systemctl --user enable --now talkative-agent
+# Run `loginctl enable-linger $USER` once, or the unit stops when you log out.
 [Unit]
 Description=Talkative agent
 After=network-online.target
 Wants=network-online.target
+# never give up restarting
+StartLimitIntervalSec=0
 
 [Service]
 WorkingDirectory=%h/Talkative
 Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+# claude installed somewhere not on that PATH: point at it
+#Environment=TALKATIVE_CLAUDE=/path/to/claude
 ExecStart=%h/.bun/bin/bun src/main.ts agent
 Restart=on-failure
 RestartSec=2

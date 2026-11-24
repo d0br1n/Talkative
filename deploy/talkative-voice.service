@@ -1,10 +1,13 @@
 # systemd user unit: the voice side (speech, pairing, LiveKit room, link server).
 # Install: copy to ~/.config/systemd/user/, edit WorkingDirectory, then
 #   systemctl --user daemon-reload && systemctl --user enable --now talkative-voice
+# Run `loginctl enable-linger $USER` once, or the unit stops when you log out.
 [Unit]
 Description=Talkative voice
-After=network-online.target docker.service
+After=network-online.target
 Wants=network-online.target
+# never give up restarting (LiveKit may come up after us; a lost room exits for a restart)
+StartLimitIntervalSec=0
 
 [Service]
 WorkingDirectory=%h/Talkative
