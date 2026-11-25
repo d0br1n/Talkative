@@ -152,6 +152,8 @@ The project is a **new repository**. It is not a fork of either source, so neith
 
 ### 6.5 iOS app
 
+The design for this app is in [2026-11-25-ios-app-design.md](2026-11-25-ios-app-design.md), and it replaces the notes below where they differ. Results from checking it on a device will be recorded in [docs/ios/device-checklist.md](../ios/device-checklist.md); there are none yet.
+
 - SwiftUI on the LiveKit Swift SDK, starting from `agent-starter-swift`, with the `audio` background mode. Stays in the room with the screen locked. Uses the system's echo cancellation (voice-processing I/O).
 - **Screens:**
   - Conversation: transcript bubbles per block, greying the text the voice has not reached yet, file cards that open a read-only viewer, and a status row with sidetone's readings.
