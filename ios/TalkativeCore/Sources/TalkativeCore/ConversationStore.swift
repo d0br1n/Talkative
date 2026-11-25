@@ -67,6 +67,9 @@ public struct ConversationState: Equatable {
     public var settings: ServerSettings?
     /// Counts approvals that newly arrived; the view watches it for the haptic.
     public var newApprovals = 0
+    /// Ids of approvals the phone expired itself (newest last, capped): the voice side's own
+    /// timeout `approvalDone` arrives a little later and must not add a second line.
+    public var expiredIds: [String] = []
 
     public init(connection: Connection = .idle) { self.connection = connection }
 
@@ -82,12 +85,16 @@ public enum StoreAction {
     case sent(FromPhone)
     /// A message the phone could not send (not connected, or the send failed).
     case unsent(FromPhone)
-    /// Ends every approval whose deadline has passed, as the voice side would have: a card whose
+    /// Ends every approval whose deadline passed `expireGrace` ago, as the voice side would have: a card whose
     /// `approvalDone` was lost while the phone was away must not wait forever.
     case expire(now: Date)
 }
 
 let maxEntries = 500
+let maxExpiredIds = 50
+/// How long past `expiresAt` the phone waits for the voice side's own `approvalDone` before it
+/// ends a card itself.
+public let expireGrace: TimeInterval = 5
 
 public func reduce(_ state: inout ConversationState, _ action: StoreAction) {
     switch action {
@@ -116,10 +123,13 @@ public func reduce(_ state: inout ConversationState, _ action: StoreAction) {
             break
         }
     case .expire(let now):
-        for a in state.approvals where a.expiresAt <= now {
+        let due = state.approvals.filter { $0.expiresAt.addingTimeInterval(expireGrace) <= now }
+        for a in due {
             state.entries.append(.decision(summary: a.summary, allow: false, by: .timeout))
+            state.expiredIds.append(a.id)
         }
-        state.approvals.removeAll { $0.expiresAt <= now }
+        if state.expiredIds.count > maxExpiredIds { state.expiredIds.removeFirst(state.expiredIds.count - maxExpiredIds) }
+        state.approvals.removeAll { a in due.contains { $0.id == a.id } }
     case .received(let m):
         receive(&state, m)
     }
@@ -169,6 +179,8 @@ private func receive(_ state: inout ConversationState, _ m: ToPhone) {
         }
     case .approvalDone(let id, let allow, let by):
         var summary = "an approval"
+        // the phone already ended this card on its own clock: this is the voice side's late echo
+        if by == .timeout, !state.approvals.contains(where: { $0.id == id }), state.expiredIds.contains(id) { return }
         if let i = state.approvals.firstIndex(where: { $0.id == id }) {
             summary = state.approvals[i].summary
             state.approvals.remove(at: i)

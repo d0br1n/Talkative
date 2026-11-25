@@ -113,12 +113,14 @@ final class AppModel: ObservableObject {
         guard on else { return }
         expireApprovals()
         if micBeforeInterruption != nil {
-            log.add(.info, "interruption: no end arrived; ending it on return to the foreground")
             do {
                 try audio.activate()
             } catch {
-                log.add(.error, "audio session: reactivate failed: \(error.localizedDescription)")
+                // a call still holds the session: keep waiting for the real end
+                log.add(.error, "audio session: reactivate failed, still interrupted: \(error.localizedDescription)")
+                return
             }
+            log.add(.info, "interruption: no end arrived; ending it on return to the foreground")
             interruptionEnded()
         }
     }
@@ -178,7 +180,7 @@ final class AppModel: ObservableObject {
     /// Ends the approvals whose deadline passed; touches the state only when one did.
     private func expireApprovals() {
         let now = Date()
-        guard state.approvals.contains(where: { $0.expiresAt <= now }) else { return }
+        guard state.approvals.contains(where: { $0.expiresAt.addingTimeInterval(expireGrace) <= now }) else { return }
         dispatch(.expire(now: now))
     }
 

@@ -113,15 +113,36 @@ final class ConversationStoreTests: XCTestCase {
     func testExpireRemovesDueApprovalsAndRecordsTimeouts() {
         let late = ToPhone.approval(id: "a2", tool: "Bash", summary: "rm tmp", detail: "", expiresAt: 200_000)
         let due = ToPhone.approval(id: "a3", tool: "Bash", summary: "git push", detail: "", expiresAt: 60_000)
-        let s = run([rx(approval()), rx(late), rx(due), .expire(now: Date(timeIntervalSince1970: 90))])
+        let s = run([rx(approval()), rx(late), rx(due), .expire(now: Date(timeIntervalSince1970: 95))])
         XCTAssertEqual(s.approvals.map(\.id), ["a2"])
         XCTAssertEqual(s.entries, [.decision(summary: "run ls", allow: false, by: .timeout),
                                    .decision(summary: "git push", allow: false, by: .timeout)])
     }
 
+    func testExpireWaitsForTheVoicesOwnTimeoutAndIgnoresItsLateEcho() {
+        let early = run([rx(approval()), .expire(now: Date(timeIntervalSince1970: 92))])
+        XCTAssertEqual(early.approvals.map(\.id), ["a1"], "within the grace the voice ends the card")
+        XCTAssertEqual(early.entries, [])
+        let s = run([.expire(now: Date(timeIntervalSince1970: 95)),
+                     rx(.approvalDone(id: "a1", allow: false, by: .timeout))], from: early)
+        XCTAssertEqual(s.entries, [.decision(summary: "run ls", allow: false, by: .timeout)])
+        let other = run([rx(.approvalDone(id: "zz", allow: false, by: .timeout))], from: s)
+        XCTAssertEqual(other.entries.count, 2, "an unrelated unknown timeout still shows")
+    }
+
+    func testExpiredIdsAreCapped() {
+        var s = ConversationState(connection: .connected)
+        for i in 0..<60 {
+            reduce(&s, .received(.approval(id: "i\(i)", tool: "t", summary: "s", detail: "", expiresAt: 1_000)))
+        }
+        reduce(&s, .expire(now: Date(timeIntervalSince1970: 10)))
+        XCTAssertEqual(s.expiredIds.count, 50)
+        XCTAssertEqual(s.expiredIds.last, "i59")
+    }
+
     func testExpireBeforeAnyDeadlineChangesNothing() {
         let before = run([rx(approval()), .sent(.decide(id: "a1", allow: true))])
-        let after = run([.expire(now: Date(timeIntervalSince1970: 89.999))], from: before)
+        let after = run([.expire(now: Date(timeIntervalSince1970: 94.999))], from: before)
         XCTAssertEqual(after, before)
     }
 

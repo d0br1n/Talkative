@@ -37,9 +37,10 @@ export class AgentPhase {
     const was = this.phase;
     this.phase = state;
     let line: Line | null = null;
-    if (state === "restarting" && was !== "restarting") {
+    if (state === "restarting") {
+      // any restarting consumes an asked restart, even one landing while already restarting
       if (this.restartAsked) this.restartAsked = false;
-      else line = LINES.restarting;
+      else if (was !== "restarting") line = LINES.restarting;
     }
     if (state === "crashed" && was !== "crashed") line = LINES.cantStart;
     // an asked-for restart waits for its restarting, even past a ready sent before the agent got
