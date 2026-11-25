@@ -61,19 +61,7 @@ final class RoomController {
     }
 
     func leave() {
-        wanted = false
-        retryTask?.cancel()
-        retryTask = nil
-        generation += 1
-        let old = room
-        room = nil
-        detachTaps()
-        set(.left)
-        Task { [weak self] in
-            await old?.disconnect()
-            guard let self, !self.wanted else { return }
-            self.audio.deactivate()
-        }
+        stop(.left)
     }
 
     /// Sends on the reliable channel, in order. `mic` also turns the local microphone on or off.
@@ -115,13 +103,15 @@ final class RoomController {
                     return
                 }
                 if mic {
+                    self.audio.noteAppMicChange()
                     do {
                         try await r.localParticipant.setMicrophone(enabled: true)
                     } catch {
                         self.log.add(.error, "microphone: \(RoomController.describe(error))")
                     }
                 }
-                guard gen == self.generation else { return }
+                // The room may have dropped while the mic was publishing; `disconnected` handles that.
+                guard gen == self.generation, r === self.room, r.connectionState == .connected else { return }
                 self.joined()
             } catch {
                 guard let self, gen == self.generation else { return }
@@ -141,6 +131,10 @@ final class RoomController {
         guard wanted else { return }
         if RoomController.isRefusal(error) {
             expire(RoomController.describe(error))
+            return
+        }
+        if let reason = RoomController.takeover(error) {
+            takenOver(reason)
             return
         }
         log.add(.error, "join failed: \(RoomController.describe(error))")
@@ -169,6 +163,18 @@ final class RoomController {
     /// The pairing no longer works: stop, and stop retrying.
     private func expire(_ why: String) {
         log.add(.error, "pairing refused: \(why)")
+        stop(.expired)
+    }
+
+    /// Another device joined as `phone`, or the server removed this one. Retrying would push the
+    /// other device out in turn, so stop and let the owner rejoin.
+    private func takenOver(_ reason: String) {
+        log.add(.error, reason)
+        stop(.left)
+    }
+
+    /// Leaves the room for good (until the owner joins again): no retries, late results ignored.
+    private func stop(_ c: Connection) {
         wanted = false
         retryTask?.cancel()
         retryTask = nil
@@ -176,8 +182,12 @@ final class RoomController {
         let old = room
         room = nil
         detachTaps()
-        set(.expired)
-        Task { await old?.disconnect() }
+        set(c)
+        Task { [weak self] in
+            await old?.disconnect()
+            guard let self, !self.wanted else { return }
+            self.audio.deactivate()
+        }
     }
 
     // MARK: - Sending
@@ -206,7 +216,9 @@ final class RoomController {
             do {
                 try await r.localParticipant.publish(data: data, options: options)
             } catch {
-                self?.log.add(.error, "send failed: \(RoomController.describe(error))")
+                guard let self else { return }
+                self.log.add(.error, "send failed: \(RoomController.describe(error))")
+                self.onUnsent(m)
             }
         }
         return true
@@ -215,6 +227,7 @@ final class RoomController {
     private func setMicrophone(_ on: Bool) {
         micOn = on
         guard let r = room, r.connectionState == .connected else { return }
+        audio.noteAppMicChange()
         Task { [weak self] in
             do {
                 try await r.localParticipant.setMicrophone(enabled: on)
@@ -244,8 +257,8 @@ final class RoomController {
 
     fileprivate func reconnectCompleted(_ r: Room) {
         guard r === room, r.connectionState == .connected else { return }
-        set(.connected)
-        greet()
+        // Also covers a first join whose mic publish raced a reconnect and skipped `joined()`.
+        joined()
     }
 
     /// LiveKit gave up on a connection that had been up.
@@ -254,6 +267,10 @@ final class RoomController {
         detachTaps()
         if let error, RoomController.isRefusal(error) {
             expire(RoomController.describe(error))
+            return
+        }
+        if let error, let reason = RoomController.takeover(error) {
+            takenOver(reason)
             return
         }
         log.add(.error, "disconnected: \(error.map { RoomController.describe($0) } ?? "no reason given")")
@@ -311,6 +328,16 @@ final class RoomController {
     private static func isRefusal(_ error: Error) -> Bool {
         guard let e = error as? LiveKitError else { return false }
         return e.type == .validation
+    }
+
+    /// A disconnect that a retry must not undo: why, for the log; nil for any other error.
+    private static func takeover(_ error: Error) -> String? {
+        guard let e = error as? LiveKitError else { return nil }
+        switch e.type {
+        case .duplicateIdentity: return "another device joined the room as this phone; not rejoining"
+        case .participantRemoved: return "the server removed this phone from the room; not rejoining"
+        default: return nil
+        }
     }
 
     private static func describe(_ error: Error) -> String {

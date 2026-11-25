@@ -12,6 +12,14 @@ final class AudioSessionController {
     var onInterruptionEnded: @MainActor () -> Void = {}
     /// The owner pressed the AirPods stem (iOS 17 press-to-mute): a barge-in, not a mute.
     var onQuiet: @MainActor () -> Void = {}
+    /// The owner's mic choice (`state.mic`). A muted input while this is false is the owner's
+    /// own mic-off, not a press, and must stay muted.
+    var micIsOn: @MainActor () -> Bool = { false }
+
+    /// When the app itself last turned the microphone on or off. LiveKit's default mute mode
+    /// mutes through the voice-processing input, which may post the same notification.
+    private var lastAppMicChange: Date?
+    private static let ownChangeWindow: TimeInterval = 1.0
 
     private let log: RemoteLog
     private var observers: [NSObjectProtocol] = []
@@ -29,6 +37,12 @@ final class AudioSessionController {
         try session.setCategory(.playAndRecord, mode: .voiceChat,
                                 options: [.allowBluetoothHFP, .allowBluetoothA2DP])
         try session.setActive(true)
+    }
+
+    /// Call whenever the app turns the microphone on or off, so the mute notification that
+    /// follows is not taken for an AirPods press.
+    func noteAppMicChange() {
+        lastAppMicChange = Date()
     }
 
     /// Lets other apps' audio resume after leaving.
@@ -99,11 +113,16 @@ final class AudioSessionController {
     }
 
     /// iOS 17 press-to-mute: the system muted the input at the owner's press. Turn that into
-    /// `quiet` and unmute again, so the microphone stays live.
+    /// `quiet` and unmute again, so the microphone stays live. Only while the owner's mic is on
+    /// and the app did not just change it itself; never unmutes a mic the owner turned off.
     @available(iOS 17.0, *)
     private func inputMuteChanged() {
         let app = AVAudioApplication.shared
         guard app.isInputMuted else { return }
+        guard micIsOn() else { return }
+        if let last = lastAppMicChange, Date().timeIntervalSince(last) < AudioSessionController.ownChangeWindow {
+            return
+        }
         log.add(.info, "press-to-mute: quiet")
         onQuiet()
         do {

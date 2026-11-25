@@ -112,6 +112,7 @@ final class AppModel: ObservableObject {
         audio.onInterruptionBegan = { [weak self] in self?.interruptionBegan() }
         audio.onInterruptionEnded = { [weak self] in self?.interruptionEnded() }
         audio.onQuiet = { [weak self] in self?.send(.command(.quiet)) }
+        audio.micIsOn = { [weak self] in self?.state.mic ?? false }
     }
 
     private func dispatch(_ action: StoreAction) {
