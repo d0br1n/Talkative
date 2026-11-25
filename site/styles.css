@@ -397,6 +397,45 @@ pre {
   }
 }
 
+/* What the mark is doing (listening, thinking, speaking) and the
+   microphone toggle. The mode line keeps its height when empty, so the
+   page does not jump as the run starts and ends. */
+.hero-mark {
+  margin-bottom: 0.5rem;
+}
+
+.mark-controls {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  margin-bottom: 2.5rem;
+}
+
+.mark-controls p {
+  margin: 0;
+}
+
+.mark-mode {
+  min-height: 1.5em;
+  color: var(--muted);
+  font-size: 0.875rem;
+  letter-spacing: 0.08em;
+}
+
+.mark-mode:not(:empty)::before {
+  content: "> " / "";
+  color: var(--accent);
+}
+
+.mark-note {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.mark-note:empty {
+  display: none;
+}
+
 /* ---------- Hero ---------- */
 
 .hero {
