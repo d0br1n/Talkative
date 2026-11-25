@@ -28,4 +28,5 @@ agent on a laptop. In short, on one machine:
 
 - `bun install` installs the TypeScript dependencies (voice side and agent side).
 - `bun test` runs the TypeScript tests.
+- `scripts/swift-test` runs the Swift core package tests on Linux in Docker (no Mac needed).
 - `uv sync` installs the Python benchmark environment; `uv run pytest -q` runs its tests.
