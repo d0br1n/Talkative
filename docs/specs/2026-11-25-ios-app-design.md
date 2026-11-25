@@ -195,6 +195,7 @@ These are taken verbatim from `site/styles.css`:
 | Agent restarting | `◌ restarting` |
 | Agent down or link lost | `✕ agent down` |
 | Phone reconnecting | `… reconnecting` |
+| Microphone off (the owner's choice, an interruption, or a failed publish) | `mic off`, appended before `♪ off` |
 | Audio off | `♪ off`, appended |
 
 The status line is accessible text, not decoration.

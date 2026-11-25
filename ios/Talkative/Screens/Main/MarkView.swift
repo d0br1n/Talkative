@@ -32,11 +32,11 @@ struct MarkView: View {
 
     private static let stillUp = MarkRenderer.frame(t: 0, bars: MarkRenderer.envelope)
     private static let stillDown = MarkRenderer.frame(
-        t: 0, bars: MarkMode.bars(mode: .down, t: 0, output: [], mic: []))
+        t: 0, bars: MarkMode.bars(mode: .down, t: 0, output: [], mic: [], micOn: true))
 }
 
 /// Ticks every 0.09 s. It holds the model without observing it, so only the timeline redraws it,
-/// reading the latest levels on each tick.
+/// reading the latest levels (which are not published) and state on each tick.
 private struct LiveMark: View {
     let model: AppModel
     @State private var start = Date()
@@ -49,7 +49,7 @@ private struct LiveMark: View {
             let mode = MarkMode.select(
                 connected: s.connection == .connected, agent: s.agent, thinking: s.thinking,
                 outputRMS: model.outputRMS, micRMS: model.micRMS, micOn: s.mic)
-            let bars = MarkMode.bars(mode: mode, t: t, output: model.outputBars, mic: model.micBars)
+            let bars = MarkMode.bars(mode: mode, t: t, output: model.outputBars, mic: model.micBars, micOn: s.mic)
             MarkFrame(text: MarkRenderer.frame(t: t, bars: bars), down: mode == .down)
         }
     }

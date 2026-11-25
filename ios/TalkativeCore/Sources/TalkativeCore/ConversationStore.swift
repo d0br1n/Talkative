@@ -69,12 +69,22 @@ public struct ConversationState: Equatable {
     public var newApprovals = 0
 
     public init(connection: Connection = .idle) { self.connection = connection }
+
+    /// The transcript line for a decision that never left the phone.
+    public static let decisionNotSent = "Not connected, so that decision wasn't sent. Try again once connected."
+    /// The transcript line for any other tap that never left the phone.
+    public static let notSent = "Not connected; that wasn't sent."
 }
 
 public enum StoreAction {
     case received(ToPhone)
     case connection(Connection)
     case sent(FromPhone)
+    /// A message the phone could not send (not connected, or the send failed).
+    case unsent(FromPhone)
+    /// Ends every approval whose deadline has passed, as the voice side would have: a card whose
+    /// `approvalDone` was lost while the phone was away must not wait forever.
+    case expire(now: Date)
 }
 
 let maxEntries = 500
@@ -83,6 +93,10 @@ public func reduce(_ state: inout ConversationState, _ action: StoreAction) {
     switch action {
     case .connection(let c):
         state.connection = c
+        // A decide in flight may be lost with the connection: let the owner answer again.
+        if c == .reconnecting || c == .connecting {
+            for i in state.approvals.indices { state.approvals[i].sending = false }
+        }
     case .sent(let m):
         switch m {
         case .decide(let id, _):
@@ -91,6 +105,21 @@ public func reduce(_ state: inout ConversationState, _ action: StoreAction) {
         case .audio(let on): state.audio = on
         default: break
         }
+    case .unsent(let m):
+        switch m {
+        case .decide:
+            state.entries.append(.error(ConversationState.decisionNotSent))
+            for i in state.approvals.indices { state.approvals[i].sending = false }
+        case .command, .settings, .said, .mic, .audio:
+            state.entries.append(.error(ConversationState.notSent))
+        case .hello, .log:
+            break
+        }
+    case .expire(let now):
+        for a in state.approvals where a.expiresAt <= now {
+            state.entries.append(.decision(summary: a.summary, allow: false, by: .timeout))
+        }
+        state.approvals.removeAll { $0.expiresAt <= now }
     case .received(let m):
         receive(&state, m)
     }

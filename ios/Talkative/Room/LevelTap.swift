@@ -5,7 +5,8 @@ import TalkativeCore
 
 /// Watches one audio track: each buffer goes through this tap's own `BandMeter` on a serial
 /// queue (the meter is not thread-safe and allocates, so it stays off the audio thread), and
-/// the bars and RMS reach the main actor at most every 33 ms.
+/// the bars and RMS reach the main actor at most every 33 ms, and not at all while paused
+/// (the scene is not active).
 final class LevelTap: NSObject, AudioRenderer, @unchecked Sendable {
     typealias Sink = @MainActor (_ bars: [Double], _ rms: Double) -> Void
 
@@ -17,6 +18,7 @@ final class LevelTap: NSObject, AudioRenderer, @unchecked Sendable {
     // Touched only on `queue`.
     private var meter: BandMeter?
     private var lastPublish: TimeInterval = 0
+    private var posting = true
 
     init(label: String, bands: Int = 14, sink: @escaping Sink) {
         self.bands = bands
@@ -32,6 +34,16 @@ final class LevelTap: NSObject, AudioRenderer, @unchecked Sendable {
         queue.async { [weak self] in self?.process(samples, rate: rate) }
     }
 
+    /// Pauses or resumes metering and posting. A resumed tap starts with a fresh meter.
+    func setPosting(_ on: Bool) {
+        queue.async { [weak self] in
+            guard let self, on != self.posting else { return }
+            self.posting = on
+            self.meter = nil
+            self.lastPublish = 0
+        }
+    }
+
     /// Forgets the meter's history and publishes silence, after any buffers already queued.
     func reset() {
         queue.async { [weak self] in
@@ -43,6 +55,7 @@ final class LevelTap: NSObject, AudioRenderer, @unchecked Sendable {
     }
 
     private func process(_ samples: [Float], rate: Double) {
+        guard posting else { return }
         if meter == nil || meter?.sampleRate != rate {
             meter = BandMeter(sampleRate: rate, bands: bands)
         }

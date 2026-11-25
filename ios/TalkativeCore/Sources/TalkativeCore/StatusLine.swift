@@ -16,6 +16,7 @@ public enum StatusLine {
             else { line = "● listening" }
         }
         if s.jobs > 0, s.connection == .connected { line += s.jobs == 1 ? " · 1 job running" : " · \(s.jobs) jobs running" }
+        if !s.mic { line += " · mic off" }
         if !s.audio { line += " · ♪ off" }
         return line
     }

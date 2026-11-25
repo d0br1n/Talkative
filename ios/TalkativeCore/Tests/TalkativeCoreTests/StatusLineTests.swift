@@ -3,9 +3,9 @@ import XCTest
 
 final class StatusLineTests: XCTestCase {
     private func state(_ c: Connection, agent: AgentHealth = .ready, thinking: Bool = false, jobs: Int = 0,
-                       audio: Bool = true, approval: Bool = false) -> ConversationState {
+                       audio: Bool = true, mic: Bool = true, approval: Bool = false) -> ConversationState {
         var s = ConversationState(connection: c)
-        s.agent = agent; s.thinking = thinking; s.jobs = jobs; s.audio = audio
+        s.agent = agent; s.thinking = thinking; s.jobs = jobs; s.audio = audio; s.mic = mic
         if approval { s.approvals = [Approval(id: "a", tool: "t", summary: "s", detail: "d", expiresAt: Date())] }
         return s
     }
@@ -38,5 +38,20 @@ final class StatusLineTests: XCTestCase {
     func testAudioOff() {
         XCTAssertEqual(StatusLine.text(state(.connected, jobs: 2, audio: false)), "● listening · 2 jobs running · ♪ off")
         XCTAssertEqual(StatusLine.text(state(.connected, audio: false)), "● listening · ♪ off")
+    }
+
+    func testMicOffInEveryConnectionState() {
+        XCTAssertEqual(StatusLine.text(state(.connected, mic: false)), "● listening · mic off")
+        XCTAssertEqual(StatusLine.text(state(.reconnecting, mic: false)), "… reconnecting · mic off")
+        XCTAssertEqual(StatusLine.text(state(.connecting, mic: false)), "… connecting · mic off")
+        XCTAssertEqual(StatusLine.text(state(.idle, mic: false)), "✕ not connected · mic off")
+        XCTAssertEqual(StatusLine.text(state(.expired, mic: false)), "✕ pairing expired · mic off")
+    }
+
+    func testMicOffAfterJobsBeforeAudioOff() {
+        XCTAssertEqual(StatusLine.text(state(.connected, jobs: 2, audio: false, mic: false)),
+                       "● listening · 2 jobs running · mic off · ♪ off")
+        XCTAssertEqual(StatusLine.text(state(.reconnecting, jobs: 2, audio: false, mic: false)),
+                       "… reconnecting · mic off · ♪ off")
     }
 }

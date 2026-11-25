@@ -16,10 +16,11 @@ public enum MarkMode: Equatable {
         return .listening
     }
 
-    public static func bars(mode: MarkMode, t: Double, output: [Double], mic: [Double]) -> [Double] {
+    /// With the mic off, listening is flat: the mic tap may still hear a muted input.
+    public static func bars(mode: MarkMode, t: Double, output: [Double], mic: [Double], micOn: Bool) -> [Double] {
         switch mode {
         case .speaking: return output
-        case .listening: return mic
+        case .listening: return micOn ? mic : Array(repeating: 0, count: MarkRenderer.bars)
         case .thinking: return MarkRenderer.idleBars(t: t * 0.35, level: 0.22)
         case .down: return MarkRenderer.idleBars(t: 0, level: 0.1)
         }

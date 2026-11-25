@@ -90,8 +90,61 @@ final class ConversationStoreTests: XCTestCase {
         let s = run([rx(approval()), .sent(.decide(id: "a1", allow: true)), .connection(.reconnecting),
                      .connection(.connected), rx(approval())])
         XCTAssertEqual(s.approvals.count, 1); XCTAssertEqual(s.newApprovals, 1)
-        XCTAssertTrue(s.approvals[0].sending)
+        // A decide may have been lost in the reconnect: the card can be answered again.
+        XCTAssertFalse(s.approvals[0].sending)
         XCTAssertEqual(s.connection, .connected)
+    }
+
+    func testReconnectingAndConnectingClearEverySending() {
+        for c in [Connection.reconnecting, .connecting] {
+            let s = run([rx(approval("a")), rx(approval("b")), .sent(.decide(id: "a", allow: true)),
+                         .sent(.decide(id: "b", allow: false)), .connection(c)])
+            XCTAssertEqual(s.approvals.map(\.sending), [false, false], "\(c)")
+        }
+    }
+
+    func testConnectedAndLeftKeepSending() {
+        for c in [Connection.connected, .left, .idle, .expired] {
+            let s = run([rx(approval()), .sent(.decide(id: "a1", allow: true)), .connection(c)])
+            XCTAssertTrue(s.approvals[0].sending, "\(c)")
+        }
+    }
+
+    func testExpireRemovesDueApprovalsAndRecordsTimeouts() {
+        let late = ToPhone.approval(id: "a2", tool: "Bash", summary: "rm tmp", detail: "", expiresAt: 200_000)
+        let due = ToPhone.approval(id: "a3", tool: "Bash", summary: "git push", detail: "", expiresAt: 60_000)
+        let s = run([rx(approval()), rx(late), rx(due), .expire(now: Date(timeIntervalSince1970: 90))])
+        XCTAssertEqual(s.approvals.map(\.id), ["a2"])
+        XCTAssertEqual(s.entries, [.decision(summary: "run ls", allow: false, by: .timeout),
+                                   .decision(summary: "git push", allow: false, by: .timeout)])
+    }
+
+    func testExpireBeforeAnyDeadlineChangesNothing() {
+        let before = run([rx(approval()), .sent(.decide(id: "a1", allow: true))])
+        let after = run([.expire(now: Date(timeIntervalSince1970: 89.999))], from: before)
+        XCTAssertEqual(after, before)
+    }
+
+    func testUnsentDecideSaysSoAndClearsSending() {
+        let s = run([rx(approval()), .sent(.decide(id: "a1", allow: true)), .unsent(.decide(id: "a1", allow: true))])
+        XCTAssertEqual(s.entries, [.error(ConversationState.decisionNotSent)])
+        XCTAssertEqual(ConversationState.decisionNotSent,
+                       "Not connected, so that decision wasn't sent. Try again once connected.")
+        XCTAssertFalse(s.approvals[0].sending)
+    }
+
+    func testUnsentTapsSaySoOnce() {
+        let taps: [FromPhone] = [.command(.stop), .settings(verbosity: .brief, model: nil, effort: nil),
+                                 .said(text: "hi"), .mic(on: false), .audio(on: true)]
+        for m in taps {
+            XCTAssertEqual(run([.unsent(m)]).entries, [.error("Not connected; that wasn't sent.")], "\(m)")
+        }
+        XCTAssertEqual(ConversationState.notSent, "Not connected; that wasn't sent.")
+    }
+
+    func testUnsentHelloAndLogSayNothing() {
+        let s = run([.unsent(.hello(protocol: 1)), .unsent(.log(level: .info, text: "x"))])
+        XCTAssertEqual(s.entries, [])
     }
 
     func testApprovalDoneRemovesAndRecordsDecision() {

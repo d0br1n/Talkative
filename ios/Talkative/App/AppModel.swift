@@ -9,10 +9,12 @@ private let barCount = 14
 final class AppModel: ObservableObject {
     @Published private(set) var state = ConversationState()
     @Published private(set) var credentials: Credentials? = nil
-    @Published private(set) var outputBars: [Double] = Array(repeating: 0, count: barCount)
-    @Published private(set) var micBars: [Double] = Array(repeating: 0, count: barCount)
-    @Published private(set) var outputRMS: Double = 0
-    @Published private(set) var micRMS: Double = 0
+    // The levels change ~30 times a second each. They are not published, so they never redraw
+    // the screens: only the live mark reads them, on its own timeline.
+    private(set) var outputBars: [Double] = Array(repeating: 0, count: barCount)
+    private(set) var micBars: [Double] = Array(repeating: 0, count: barCount)
+    private(set) var outputRMS: Double = 0
+    private(set) var micRMS: Double = 0
     /// The voice side's address from the last pairing (`host` or `host:port`), for the pair
     /// screen to fill in after the pairing expired.
     @Published private(set) var lastAddress = ""
@@ -22,8 +24,13 @@ final class AppModel: ObservableObject {
     private let pairing: PairingClient
     private let audio: AudioSessionController
     private let room: RoomController
-    /// The owner's mic choice when an interruption began; nil when none is in progress.
+    /// The owner's mic choice when an interruption began (or their latest during it); nil when
+    /// none is in progress.
     private var micBeforeInterruption: Bool?
+    /// The scene is in the foreground and active.
+    private var active = true
+    /// Ends overdue approvals once a second while any is shown and the scene is active.
+    private var expiryTask: Task<Void, Never>?
 
     init() {
         let log = RemoteLog()
@@ -55,6 +62,7 @@ final class AppModel: ObservableObject {
             log.add(.error, "keychain: could not save the pairing: \(error)")
         }
         state = ConversationState()
+        watchApprovals()
         lastAddress = AppModel.address(of: c.pairURL)
         credentials = c
         join()
@@ -76,11 +84,14 @@ final class AppModel: ObservableObject {
         credentials = nil
         lastAddress = ""
         state = ConversationState()
+        watchApprovals()
     }
 
+    /// The owner's own action.
     func send(_ m: FromPhone) {
-        dispatch(.sent(m))
-        room.send(m)
+        // Their mic choice during an interruption is the one its end restores.
+        if case .mic(let on) = m, micBeforeInterruption != nil { micBeforeInterruption = on }
+        deliver(m)
     }
 
     func decide(id: String, allow: Bool) {
@@ -91,12 +102,34 @@ final class AppModel: ObservableObject {
         send(.said(text: text))
     }
 
+    /// The scene's phase, from the root view. In the background the level taps stop posting;
+    /// back in the foreground, overdue approvals end and an interruption whose end never came
+    /// is treated as ended.
+    func setActive(_ on: Bool) {
+        guard on != active else { return }
+        active = on
+        room.setLevelsPosting(on)
+        watchApprovals()
+        guard on else { return }
+        expireApprovals()
+        if micBeforeInterruption != nil {
+            log.add(.info, "interruption: no end arrived; ending it on return to the foreground")
+            do {
+                try audio.activate()
+            } catch {
+                log.add(.error, "audio session: reactivate failed: \(error.localizedDescription)")
+            }
+            interruptionEnded()
+        }
+    }
+
     // MARK: - Wiring
 
     private func wire() {
         room.onConnection = { [weak self] c in self?.connectionChanged(c) }
         room.onMessage = { [weak self] m in self?.dispatch(.received(m)) }
-        room.onUnsent = { [weak self] m in self?.unsent(m) }
+        room.onUnsent = { [weak self] m in self?.dispatch(.unsent(m)) }
+        room.onMicFailed = { [weak self] in self?.dispatch(.sent(.mic(on: false))) }
         room.greeting = { [weak self] in
             guard let self else { return [] }
             return [.mic(on: self.state.mic), .audio(on: self.state.audio)]
@@ -111,12 +144,42 @@ final class AppModel: ObservableObject {
         }
         audio.onInterruptionBegan = { [weak self] in self?.interruptionBegan() }
         audio.onInterruptionEnded = { [weak self] in self?.interruptionEnded() }
-        audio.onQuiet = { [weak self] in self?.send(.command(.quiet)) }
+        audio.onQuiet = { [weak self] in self?.deliver(.command(.quiet)) }
         audio.micIsOn = { [weak self] in self?.state.mic ?? false }
+    }
+
+    private func deliver(_ m: FromPhone) {
+        dispatch(.sent(m))
+        room.send(m)
     }
 
     private func dispatch(_ action: StoreAction) {
         TalkativeCore.reduce(&state, action)
+        watchApprovals()
+    }
+
+    /// Runs the once-a-second expiry while an approval is shown and the scene is active.
+    private func watchApprovals() {
+        guard active, !state.approvals.isEmpty else {
+            expiryTask?.cancel()
+            expiryTask = nil
+            return
+        }
+        guard expiryTask == nil else { return }
+        expiryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                self.expireApprovals()
+            }
+        }
+    }
+
+    /// Ends the approvals whose deadline passed; touches the state only when one did.
+    private func expireApprovals() {
+        let now = Date()
+        guard state.approvals.contains(where: { $0.expiresAt <= now }) else { return }
+        dispatch(.expire(now: now))
     }
 
     private func connectionChanged(_ c: Connection) {
@@ -126,22 +189,15 @@ final class AppModel: ObservableObject {
         if c == .expired { credentials = nil }
     }
 
-    /// A decision that never left the phone must not leave its card stuck on `sending`.
-    private func unsent(_ m: FromPhone) {
-        if case .decide = m {
-            dispatch(.received(.error(text: "Not connected, so that decision wasn't sent. Try again once connected.")))
-        }
-    }
-
     private func interruptionBegan() {
         if micBeforeInterruption == nil { micBeforeInterruption = state.mic }
-        if state.mic { send(.mic(on: false)) }
+        if state.mic { deliver(.mic(on: false)) }
     }
 
     private func interruptionEnded() {
         let wasOn = micBeforeInterruption ?? state.mic
         micBeforeInterruption = nil
-        if wasOn { send(.mic(on: true)) }
+        if wasOn { deliver(.mic(on: true)) }
     }
 
     private static func address(of url: URL) -> String {

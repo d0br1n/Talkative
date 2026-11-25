@@ -11,6 +11,8 @@ final class RoomController {
     var onMessage: @MainActor (ToPhone) -> Void = { _ in }
     /// A message that could not be sent because the room is not connected.
     var onUnsent: @MainActor (FromPhone) -> Void = { _ in }
+    /// Publishing the microphone failed (e.g. no permission): the mic is off.
+    var onMicFailed: @MainActor () -> Void = {}
     /// The `mic` and `audio` messages that follow `hello` on every connect.
     var greeting: @MainActor () -> [FromPhone] = { [] }
     var onMicLevels: @MainActor ([Double], Double) -> Void = { _, _ in }
@@ -39,6 +41,9 @@ final class RoomController {
     private var generation = 0
     private var retryTask: Task<Void, Never>?
     private var sendChain: Task<Void, Never>?
+    /// Sends the log's new lines every 2 s while connected.
+    private var drainTask: Task<Void, Never>?
+    private static let drainInterval: UInt64 = 2_000_000_000
     private var tappedOutput: RemoteAudioTrack?
     private var tappedOutputSid: String?
 
@@ -62,6 +67,12 @@ final class RoomController {
 
     func leave() {
         stop(.left)
+    }
+
+    /// Whether the level taps post to the main actor (off while the scene is not active).
+    func setLevelsPosting(_ on: Bool) {
+        micTap.setPosting(on)
+        outputTap.setPosting(on)
     }
 
     /// Sends on the reliable channel, in order. `mic` also turns the local microphone on or off.
@@ -107,7 +118,8 @@ final class RoomController {
                     do {
                         try await r.localParticipant.setMicrophone(enabled: true)
                     } catch {
-                        self.log.add(.error, "microphone: \(RoomController.describe(error))")
+                        if gen == self.generation { self.micFailed(error) }
+                        else { self.log.add(.error, "microphone: \(RoomController.describe(error))") }
                     }
                 }
                 // The room may have dropped while the mic was publishing; `disconnected` handles that.
@@ -232,9 +244,20 @@ final class RoomController {
             do {
                 try await r.localParticipant.setMicrophone(enabled: on)
             } catch {
-                self?.log.add(.error, "microphone \(on ? "on" : "off") failed: \(RoomController.describe(error))")
+                guard let self else { return }
+                if on && r === self.room && self.micOn { self.micFailed(error) }
+                else { self.log.add(.error, "microphone \(on ? "on" : "off") failed: \(RoomController.describe(error))") }
             }
         }
+    }
+
+    /// The microphone could not be published: it is off, the owner sees `mic off`, and the voice
+    /// side is told when the room is up (otherwise the greeting tells it).
+    private func micFailed(_ error: Error) {
+        micOn = false
+        log.add(.error, "microphone: could not turn on, so it is off: \(RoomController.describe(error))")
+        onMicFailed()
+        if connection == .connected { _ = transmit(.mic(on: false)) }
     }
 
     // MARK: - Room events (on the main actor, in the order LiveKit sent them)
@@ -320,7 +343,25 @@ final class RoomController {
         guard c != connection else { return }
         connection = c
         log.add(c == .expired ? .error : .info, "connection: \(c)")
+        if c == .connected { startDraining() } else { stopDraining() }
         onConnection(c)
+    }
+
+    /// The log reaches the voice side at connect (in the greeting) and then every 2 s.
+    private func startDraining() {
+        drainTask?.cancel()
+        drainTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: RoomController.drainInterval)
+                guard !Task.isCancelled, let self, self.connection == .connected else { return }
+                for m in self.log.drain() { _ = self.transmit(m) }
+            }
+        }
+    }
+
+    private func stopDraining() {
+        drainTask?.cancel()
+        drainTask = nil
     }
 
     /// LiveKit checks a refused join against its validate endpoint and reports any 4xx but
