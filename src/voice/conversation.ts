@@ -3,7 +3,7 @@
 // told everything. Speech and the agent meet only here.
 import type { AgentToVoice, Effort, VoiceToAgent, Verbosity } from "../shared/link.js";
 import type { FromPhone, ToPhone } from "../shared/phone.js";
-import { AgentPhase, type Phase } from "./agent-phase.js";
+import { AgentPhase } from "./agent-phase.js";
 import { PendingApprovals } from "./approvals.js";
 import { matchCommand, type Command } from "./commands.js";
 import { DEFAULT_EAR_SETTINGS, Ear, type EarSettings } from "./ear.js";
@@ -78,6 +78,8 @@ export class VoiceConversation {
   private sentTurns = 0;
   private linkUp = false;
   private everUp = false;
+  /** settings went to the agent: its states until the restart they cause still carry the old values */
+  private settingsInFlight = false;
   private readonly agentPhase = new AgentPhase();
   private audio = true;
   private mic = true;
@@ -170,6 +172,7 @@ export class VoiceConversation {
         return;
       }
       this.agentPhase.askedRestart();
+      this.settingsInFlight = true;
       if (change.model !== undefined) this.model = change.model;
       if (change.effort !== undefined) this.effort = change.effort;
     }
@@ -242,6 +245,7 @@ export class VoiceConversation {
       return;
     }
     this.agentPhase.linkDown();
+    this.settingsInFlight = false;
     // the agent cannot finish what was open, and its jobs went with it as far as we can tell
     this.closed.close([...this.turns.keys(), ...this.ownerTurns]);
     this.turns.clear();
@@ -257,7 +261,7 @@ export class VoiceConversation {
       case "hello":
         return;
       case "agent":
-        this.agentState(m.state, m.detail);
+        this.agentState(m);
         return;
       case "turnStart":
         // a stop may have silenced it before its start arrived
@@ -313,18 +317,23 @@ export class VoiceConversation {
     }
   }
 
-  private agentState(state: Phase, detail?: string): void {
+  private agentState(m: Extract<AgentToVoice, { t: "agent" }>): void {
+    const { state, detail } = m;
     if (state !== "ready") this.closed.clear();
     // a restarted coordinator does not end the jobs it dropped
     if (state === "restarting" || state === "crashed") this.jobs.clear();
     // only a fresh agent host says starting: nothing there can answer the old approvals
     if (state === "starting") {
       this.approvals.dropAll();
-      // a fresh host starts with the configured values: bring it to the ones in force
-      if (this.model !== this.o.model || this.effort !== this.o.effort) {
-        this.o.agent.send({ t: "settings", model: this.model, effort: this.effort });
+      // a fresh host starts with its configured values: bring it to the ones in force, and its
+      // restart for them is not announced
+      const model = m.model ?? this.o.model;
+      const effort = m.effort ?? this.o.effort;
+      if (this.model !== model || this.effort !== effort) {
+        this.agentPhase.askedRestart();
+        if (this.o.agent.send({ t: "settings", model: this.model, effort: this.effort })) this.settingsInFlight = true;
       }
-    }
+    } else this.adopt(m);
     const { line, report } = this.agentPhase.update(state, detail);
     this.status();
     if (report) {
@@ -332,6 +341,28 @@ export class VoiceConversation {
       this.o.phone.send({ t: "error", text: report });
     }
     if (line) this.say(line);
+  }
+
+  /**
+   * The agent host is the source of truth for its model and effort (a voice that restarted
+   * starts from its config): take them and tell the phone when they changed. A state sent before
+   * the restart our own settings asked for still carries the old ones, so those wait for it.
+   */
+  private adopt(m: Extract<AgentToVoice, { t: "agent" }>): void {
+    if (this.settingsInFlight) {
+      if (m.state !== "restarting") return;
+      this.settingsInFlight = false;
+    }
+    let changed = false;
+    if (m.model !== undefined && m.model !== this.model) {
+      this.model = m.model;
+      changed = true;
+    }
+    if (m.effort !== undefined && m.effort !== this.effort) {
+      this.effort = m.effort;
+      changed = true;
+    }
+    if (changed) this.sendSettings();
   }
 
   private approval(m: Extract<AgentToVoice, { t: "approval" }>): void {
@@ -372,8 +403,14 @@ export class VoiceConversation {
         this.o.phoneLog?.write(m.level, m.text);
         return;
       case "decide":
+        // a card whose end the phone missed (it timed out, or a fresh agent host dropped it while
+        // the phone was away) would wait forever: end it there, and the agent never knew it
+        if (!this.approvals.has(m.id)) {
+          this.o.phone.send({ t: "approvalDone", id: m.id, allow: false, by: "timeout" });
+          return;
+        }
         // it stays pending either way: the agent still holds the request
-        if (this.approvals.has(m.id) && !this.o.agent.send({ t: "decide", id: m.id, allow: m.allow })) {
+        if (!this.o.agent.send({ t: "decide", id: m.id, allow: m.allow })) {
           this.o.phone.send({ t: "error", text: DECIDE_NOT_SENT });
         }
         return;

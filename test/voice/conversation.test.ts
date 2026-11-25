@@ -771,3 +771,88 @@ describe("9. phone settings and commands", () => {
     r.conv.onPhone({ t: "log", level: "info", text: "x" });
   });
 });
+
+describe("milestone 3 final review fixes", () => {
+  test("a decide for an id the voice no longer knows ends the card on the phone as timed out, and tells the agent nothing", async () => {
+    const r = rig();
+    r.phone.got = [];
+    r.conv.onPhone({ t: "decide", id: "gone", allow: true });
+    expect(r.agent.of("decide")).toEqual([]);
+    expect(r.phone.got).toEqual([{ t: "approvalDone", id: "gone", allow: false, by: "timeout" }]);
+    await settle();
+    expect(r.spoken()).toEqual([]);
+  });
+
+  test("a pending id is still forwarded and ends nothing on the phone", () => {
+    const r = rig();
+    r.agentSays(APPROVAL);
+    r.phone.got = [];
+    r.conv.onPhone({ t: "decide", id: "req-1", allow: true });
+    expect(r.agent.of("decide")).toEqual([{ t: "decide", id: "req-1", allow: true }]);
+    expect(r.phone.of("approvalDone")).toEqual([]);
+  });
+
+  test("the restart a fresh host gets for the settings in force is not announced, even after its first ready", async () => {
+    const r = rig();
+    r.conv.onPhone({ t: "settings", model: "opus" });
+    r.agentSays({ t: "agent", state: "restarting", model: "opus", effort: "default" }, { t: "agent", state: "ready", model: "opus", effort: "default" });
+    await settle();
+    r.agent.sent = [];
+    // a fresh host: its buffered starting and ready come first, then the restart our re-send asked for
+    r.agentSays({ t: "agent", state: "starting", model: "sonnet", effort: "default" });
+    expect(r.agent.of("settings")).toEqual([{ t: "settings", model: "opus", effort: "default" }]);
+    r.agentSays(
+      { t: "agent", state: "ready", model: "sonnet", effort: "default" },
+      { t: "agent", state: "restarting", model: "opus", effort: "default" },
+      { t: "agent", state: "ready", model: "opus", effort: "default" },
+    );
+    await settle();
+    expect(r.spoken()).toEqual([]);
+  });
+
+  test("a voice that restarted adopts the agent's model and effort and tells the phone", () => {
+    const r = rig({ connected: false });
+    r.conv.onAgentConnection(true);
+    r.phone.got = [];
+    r.agentSays({ t: "agent", state: "ready", model: "opus", effort: "high" });
+    expect(r.phone.of("settings")).toEqual([{ t: "settings", verbosity: "normal", model: "opus", effort: "high" }]);
+    expect(r.agent.of("settings")).toEqual([]);
+    // the same values again: nothing new for the phone
+    r.agentSays({ t: "agent", state: "ready", model: "opus", effort: "high" });
+    expect(r.phone.of("settings")).toHaveLength(1);
+    r.phone.got = [];
+    r.conv.onPhone({ t: "hello", protocol: 1 });
+    expect(r.phone.last("settings")).toEqual({ t: "settings", verbosity: "normal", model: "opus", effort: "high" });
+  });
+
+  test("a state with no model or effort (an older agent) changes nothing", () => {
+    const r = rig();
+    r.phone.got = [];
+    r.agentSays({ t: "agent", state: "ready" });
+    expect(r.phone.of("settings")).toEqual([]);
+  });
+
+  test("a fresh host's starting values are not adopted: the settings in force are re-sent", () => {
+    const r = rig();
+    r.conv.onPhone({ t: "settings", effort: "high" });
+    r.agentSays({ t: "agent", state: "restarting", model: "sonnet", effort: "high" });
+    r.agent.sent = [];
+    r.phone.got = [];
+    r.agentSays({ t: "agent", state: "starting", model: "sonnet", effort: "default" });
+    expect(r.agent.of("settings")).toEqual([{ t: "settings", model: "sonnet", effort: "high" }]);
+    // its ready from before the re-send arrived does not flip the phone back
+    r.agentSays({ t: "agent", state: "ready", model: "sonnet", effort: "default" });
+    expect(r.phone.of("settings")).toEqual([]);
+    r.agentSays({ t: "agent", state: "restarting", model: "sonnet", effort: "high" }, { t: "agent", state: "ready", model: "sonnet", effort: "high" });
+    expect(r.phone.of("settings")).toEqual([]);
+  });
+
+  test("a fresh host already on the settings in force gets nothing, whatever the voice's config says", () => {
+    const r = rig();
+    r.conv.onPhone({ t: "settings", model: "opus" });
+    r.agentSays({ t: "agent", state: "restarting", model: "opus", effort: "default" });
+    r.agent.sent = [];
+    r.agentSays({ t: "agent", state: "starting", model: "opus", effort: "default" });
+    expect(r.agent.of("settings")).toEqual([]);
+  });
+});

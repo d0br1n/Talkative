@@ -42,10 +42,9 @@ export class AgentPhase {
       else line = LINES.restarting;
     }
     if (state === "crashed" && was !== "crashed") line = LINES.cantStart;
-    if (state === "ready") {
-      if (was === "crashed" || (this.relinked && was !== "ready")) line = LINES.back;
-      this.restartAsked = false;
-    }
+    // an asked-for restart waits for its restarting, even past a ready sent before the agent got
+    // the request (a fresh host's buffered ready); only a link drop forgets it
+    if (state === "ready" && (was === "crashed" || (this.relinked && was !== "ready"))) line = LINES.back;
     // a fresh host says starting before its ready: the drop is still unanswered
     if (state !== "starting") this.relinked = false;
     const report = state === "crashed" && detail && (was !== "crashed" || detail !== this.crashDetail) ? detail : null;

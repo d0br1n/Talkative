@@ -37,7 +37,7 @@ describe("turns", () => {
     const { c, out, log } = make("text-turn");
     c.start();
     await until(() => has(out, { t: "agent", state: "ready" }));
-    expect(out[0]).toEqual({ t: "agent", state: "starting" });
+    expect(out[0]).toEqual({ t: "agent", state: "starting", model: "sonnet", effort: "default" });
     await until(() => c.sessionId === "sess-1");
     c.turn("t1", "hi", "brief");
     await until(() => has(out, { t: "turnEnd" }));
@@ -122,6 +122,21 @@ describe("restarts", () => {
     expect(a.slice(-2)).toEqual(["--resume", "sess-1"]);
     expect(a[a.indexOf("--model") + 1]).toBe("opus");
     expect(a[a.indexOf("--effort") + 1]).toBe("high");
+  });
+
+  test("every state carries the model and effort in force, so a restarted voice can adopt them", async () => {
+    const { c, out } = make("text-turn");
+    c.start();
+    await until(() => has(out, { t: "agent", state: "ready" }));
+    c.settings("opus", "high");
+    await until(() => out.filter((m) => m.t === "agent" && m.state === "ready").length === 2);
+    expect(out.filter((m) => m.t === "agent")).toEqual([
+      { t: "agent", state: "starting", model: "sonnet", effort: "default" },
+      { t: "agent", state: "ready", model: "sonnet", effort: "default" },
+      { t: "agent", state: "restarting", model: "opus", effort: "high" },
+      { t: "agent", state: "ready", model: "opus", effort: "high" },
+    ]);
+    expect(c.agentState).toEqual({ t: "agent", state: "ready", model: "opus", effort: "high" });
   });
 
   test("crash restarts with --resume, closes the open turn", async () => {
@@ -391,7 +406,7 @@ describe("final review fixes", () => {
       expect(c.agentState).toBeNull();
       c.start();
       await until(() => has(out, { t: "agent", state: "crashed" }), 8000);
-      expect(c.agentState).toEqual({ t: "agent", state: "crashed", detail: "error: login expired" });
+      expect(c.agentState).toEqual({ t: "agent", state: "crashed", detail: "error: login expired", model: "sonnet", effort: "default" });
     } finally {
       console.error = quiet;
     }

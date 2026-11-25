@@ -104,13 +104,13 @@ export class Coordinator {
     return this.session;
   }
 
-  /** The last `agent` message emitted (null before `start`): re-sent on every link welcome. */
+  /** The last `agent` message emitted (null before `start`): re-sent on every link welcome. It carries the model and effort in force. */
   get agentState(): AgentState | null {
     return this.lastState;
   }
 
   private setState(state: AgentState["state"], detail?: string): void {
-    this.lastState = { t: "agent", state, ...(detail ? { detail } : {}) };
+    this.lastState = { t: "agent", state, ...(detail ? { detail } : {}), model: this.model, effort: this.effort };
     this.emit(this.lastState);
   }
 

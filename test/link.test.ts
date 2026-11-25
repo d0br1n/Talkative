@@ -304,7 +304,7 @@ describe("final review fixes", () => {
     const second = await server(port);
     await until(() => second.got.length >= 1);
     await new Promise((r) => setTimeout(r, 100));
-    expect(second.got).toEqual([{ t: "agent", state: "crashed", detail: "error: login expired" }]);
+    expect(second.got).toEqual([{ t: "agent", state: "crashed", detail: "error: login expired", model: "sonnet", effort: "default" }]);
     expect(errs()).toContain("claude exited with code 1");
   });
 
