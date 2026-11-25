@@ -61,7 +61,7 @@ Result:
 Do: Start a conversation on Wi-Fi. Turn Wi-Fi off, or walk out of range, so the phone moves to
 cellular. Then turn Wi-Fi on again.
 
-Expect: The app shows that it is waiting while the network changes, reconnects on its own, and
+Expect: The status line shows `… reconnecting` while the network changes. The app reconnects on its own, and
 you can keep talking. You do not need to open Options or pair again.
 
 Result:
@@ -114,17 +114,21 @@ Result:
 Do: Open Settings, then Accessibility, then Motion, and turn on Reduce Motion. Return to
 Talkative while the agent is working or speaking.
 
-Expect: The mark on the main screen stays still. Turn Reduce Motion off and it moves again.
+Expect: The voice-bar mark (the 15 rows of bars under the status line on the main screen) freezes
+to a still frame, and the wordmark's flicker stops too. Turn Reduce Motion off and both move again.
 
 Result:
 
-### 11. Light mode looks like the printout
+### 11. The light theme (amber printout)
 
-Do: Set the iPhone to light appearance. Open the main screen, Options and the pairing screen.
-Compare them with the light-mode design in the printout.
+Do: Set the iPhone to Light appearance (Settings, Display & Brightness). Open the main screen,
+Options and the pairing screen.
 
-Expect: The screens match the printout: colours, text, and the `[ ... ]` buttons. Text is readable.
-Note any screen that is off.
+Expect: The app shows its light theme, the amber printout: a cream background (#F5EEE0), dark ink
+text (#1B1409) and a burnt-orange accent (#A85200). There is no glow, no scanlines and no vignette.
+Text is readable everywhere. It fails if a screen stays dark, if you see glow, scanlines or a
+vignette, or if any text is hard to read. Note which screen. Dark appearance is the phosphor
+monitor theme, so switching back should bring that one back.
 
 Result:
 
