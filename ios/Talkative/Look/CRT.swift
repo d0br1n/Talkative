@@ -40,7 +40,9 @@ private struct PhosphorGlow: ViewModifier {
 
     func body(content: Content) -> some View {
         if tokens.glows {
+            // Flatten first so the four blurs are not recomputed on every flicker frame.
             content
+                .compositingGroup()
                 .shadow(color: color(Glow.layers[0]), radius: Glow.layers[0].radius, x: 0, y: 0)
                 .shadow(color: color(Glow.layers[1]), radius: Glow.layers[1].radius, x: 0, y: 0)
                 .shadow(color: color(Glow.layers[2]), radius: Glow.layers[2].radius, x: 0, y: 0)

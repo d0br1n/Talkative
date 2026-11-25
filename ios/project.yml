@@ -30,6 +30,7 @@ targets:
         product: TalkativeCore
       - package: LiveKit
         product: LiveKit
+    scheme: {}
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.d0br1n.talkative

@@ -22,7 +22,8 @@ test("sidestore source for 0.3.0 and a 1,234-byte ipa", async () => {
     expect(v.size).toBe(1234);
     expect(v.downloadURL).toBe("https://github.com/d0br1n/Talkative/releases/download/v0.3.0/Talkative.ipa");
     expect(v.minOSVersion).toBe("17.0");
-    expect(new Date(v.date).toISOString()).toBe(v.date);
+    expect(v.date).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(Number.isNaN(new Date(v.date).getTime())).toBe(false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

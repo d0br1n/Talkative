@@ -39,7 +39,7 @@ def main(mark_path, font_path, out_path):
     font_size = target_w / (cols * 0.6)
     font = ImageFont.truetype(font_path, size=round(font_size * 4) / 4)
     adv = font.getlength("M")
-    line_h = font_size  # line spacing 0 in the app: one em per row
+    line_h = font_size  # the app draws each row exactly one em tall
     text_w = adv * cols
     text_h = line_h * rows
     x0 = (SIZE - text_w) / 2

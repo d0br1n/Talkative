@@ -10,7 +10,7 @@ export function fillSource(template: any, version: string, size: number, date: D
   const src = structuredClone(template);
   const v = src.apps[0].versions[0];
   v.version = version;
-  v.date = date.toISOString();
+  v.date = date.toISOString().replace(/\.\d{3}Z$/, "Z");
   v.downloadURL = `https://github.com/d0br1n/Talkative/releases/download/v${version}/Talkative.ipa`;
   v.size = size;
   v.minOSVersion = "17.0";

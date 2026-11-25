@@ -1,18 +1,24 @@
 import SwiftUI
 
-/// A monospaced ASCII picture from a text file in the bundle, drawn in JetBrains Mono with no line spacing.
+/// A monospaced ASCII picture from a text file in the bundle, drawn in JetBrains Mono, each row exactly one em tall.
 struct AsciiArt: View {
     let resource: String
     let pointSize: CGFloat
     let color: Color
 
     var body: some View {
-        Text(verbatim: Self.load(resource))
-            .font(.monoFixed(pointSize))
-            .lineSpacing(0)
-            .foregroundStyle(color)
-            .lineLimit(nil)
-            .fixedSize(horizontal: true, vertical: true)
+        let rows = Self.load(resource).split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(rows.indices, id: \.self) { i in
+                Text(verbatim: rows[i])
+                    .font(.monoFixed(pointSize))
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(height: pointSize, alignment: .leading)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     static func load(_ resource: String) -> String {
