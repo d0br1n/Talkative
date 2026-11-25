@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { SETTINGS_NOT_SENT } from "../../src/voice/conversation.js";
 import { LINES } from "../../src/voice/lines.js";
 import { Mouth } from "../../src/voice/mouth.js";
 import { FakePhone, FakeSpeaker, FakeTts, rig, settle } from "./harness.js";
@@ -671,5 +672,102 @@ describe("final review fixes", () => {
     r.agentSays(APPROVAL);
     await Bun.sleep(80);
     expect(r.phone.of("approvalDone")).toEqual([{ t: "approvalDone", id: "req-1", allow: false, by: "timeout" }]);
+  });
+});
+
+describe("9. phone settings and commands", () => {
+  test("joining sends the settings in force after the status", () => {
+    const r = rig();
+    r.phone.got = [];
+    r.conv.onPhone({ t: "hello", protocol: 1 });
+    expect(r.phone.got.map((m) => m.t)).toEqual(["status", "settings"]);
+    expect(r.phone.last("settings")).toEqual({ t: "settings", verbosity: "normal", model: "sonnet", effort: "default" });
+  });
+
+  test("a verbosity applies to the next turn and sends nothing to the agent's link", async () => {
+    const r = rig();
+    r.conv.onPhone({ t: "settings", verbosity: "brief" });
+    r.conv.onPhone({ t: "said", text: "hi" });
+    expect(r.agent.of("turn")).toEqual([{ t: "turn", turnId: "o-1", text: "hi", verbosity: "brief" }]);
+    expect(r.agent.of("settings")).toEqual([]);
+    expect(r.phone.last("settings")?.verbosity).toBe("brief");
+  });
+
+  test("a model change goes to the agent and its restart is not announced", async () => {
+    const r = rig();
+    r.conv.onPhone({ t: "settings", model: "opus" });
+    expect(r.agent.of("settings")).toEqual([{ t: "settings", model: "opus" }]);
+    expect(r.phone.last("settings")).toEqual({ t: "settings", verbosity: "normal", model: "opus", effort: "default" });
+    r.agentSays({ t: "agent", state: "restarting" }, { t: "agent", state: "ready" });
+    await settle();
+    expect(r.spoken()).toEqual([]);
+  });
+
+  test("an unchanged model sends no link message but still answers", () => {
+    const r = rig();
+    r.conv.onPhone({ t: "settings", model: "sonnet" });
+    expect(r.agent.of("settings")).toEqual([]);
+    expect(r.phone.of("settings")).toHaveLength(1);
+  });
+
+  test("with the link down the change is refused and nothing changes", () => {
+    const r = rig();
+    r.agent.up = false;
+    r.conv.onPhone({ t: "settings", effort: "high" });
+    expect(r.phone.of("error")).toEqual([{ t: "error", text: SETTINGS_NOT_SENT }]);
+    expect(r.phone.last("settings")?.effort).toBe("default");
+  });
+
+  test("a fresh agent host is brought to the settings in force", () => {
+    const r = rig();
+    r.conv.onPhone({ t: "settings", model: "opus" });
+    r.agent.sent = [];
+    r.agentSays({ t: "agent", state: "starting" });
+    expect(r.agent.of("settings")).toEqual([{ t: "settings", model: "opus", effort: "default" }]);
+  });
+
+  test("a fresh agent host with the starting values gets nothing", () => {
+    const r = rig();
+    r.agentSays({ t: "agent", state: "starting" });
+    expect(r.agent.of("settings")).toEqual([]);
+  });
+
+  test("the stop command stops the voice and interrupts, with no heard", async () => {
+    const r = rig();
+    r.speaker.auto = false;
+    r.conv.onPhone({ t: "said", text: "Tell me a story" });
+    r.phone.got = [];
+    r.reply("o-1", "owner", ["Once upon a time there was a fox. "], false);
+    await settle();
+    r.conv.onPhone({ t: "command", name: "stop" });
+    expect(r.speaker.stops).toBe(1);
+    expect(r.agent.of("interrupt")).toHaveLength(1);
+    expect(r.phone.of("heard")).toEqual([]);
+  });
+
+  test("the quiet command is a barge-in: the voice stops, the agent goes on", async () => {
+    const r = rig();
+    r.speaker.auto = false;
+    r.conv.onPhone({ t: "said", text: "Tell me a story" });
+    r.reply("o-1", "owner", ["Once upon a time there was a fox. "], false);
+    await settle();
+    r.conv.onPhone({ t: "command", name: "quiet" });
+    expect(r.speaker.stops).toBe(1);
+    expect(r.agent.of("interrupt")).toEqual([]);
+    r.agentSays({ t: "delta", turnId: "o-1", block: 0, text: "The fox ran away. " }, { t: "turnEnd", turnId: "o-1", ok: true });
+    await settle();
+    expect(r.spoken()).toEqual(["Once upon a time there was a fox."]);
+  });
+
+  test("a log reaches the phone log", () => {
+    const written: [string, string][] = [];
+    const r = rig({ phoneLog: { write: (level, text) => void written.push([level, text]) } });
+    r.conv.onPhone({ t: "log", level: "error", text: "x" });
+    expect(written).toEqual([["error", "x"]]);
+  });
+
+  test("a log with no phone log is dropped", () => {
+    const r = rig();
+    r.conv.onPhone({ t: "log", level: "info", text: "x" });
   });
 });

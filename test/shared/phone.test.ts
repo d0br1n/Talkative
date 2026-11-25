@@ -1,36 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import {
-  PHONE_PROTOCOL, PhoneProtocolError, decodeFromPhone, decodeToPhone, encodePhone,
-  type FromPhone, type ToPhone,
-} from "../../src/shared/phone";
-
-const toPhone: ToPhone[] = [
-  { t: "heard", text: "hi" },
-  { t: "blockStart", turnId: "a", block: 0 },
-  { t: "blockEnd", turnId: "a", block: 0 },
-  { t: "delta", turnId: "a", block: 0, text: "x" },
-  { t: "sentence", turnId: "a", index: 1, text: "Hello." },
-  { t: "speaking", turnId: "a", index: 1 },
-  { t: "narration", text: "running" },
-  { t: "status", agent: "ready", thinking: false, jobs: 0, audio: true },
-  { t: "error", text: "bad" },
-  { t: "approval", id: "p", tool: "Bash", summary: "s", detail: "{}", expiresAt: 1700000000000 },
-  { t: "approvalDone", id: "p", allow: false, by: "owner" },
-];
-const fromPhone: FromPhone[] = [
-  { t: "hello", protocol: PHONE_PROTOCOL },
-  { t: "mic", on: true },
-  { t: "audio", on: false },
-  { t: "said", text: "hello" },
-  { t: "decide", id: "p", allow: true },
-];
+import { PhoneProtocolError, decodeFromPhone, decodeToPhone, encodePhone } from "../../src/shared/phone";
+import { BAD_SAMPLES, FROM_PHONE_SAMPLES, TO_PHONE_SAMPLES } from "./phone-samples";
 
 describe("phone codec", () => {
   test("round-trips every ToPhone variant", () => {
-    for (const m of toPhone) expect(decodeToPhone(encodePhone(m))).toEqual(m);
+    for (const m of TO_PHONE_SAMPLES) expect(decodeToPhone(encodePhone(m))).toEqual(m);
   });
   test("round-trips every FromPhone variant", () => {
-    for (const m of fromPhone) expect(decodeFromPhone(encodePhone(m))).toEqual(m);
+    for (const m of FROM_PHONE_SAMPLES) expect(decodeFromPhone(encodePhone(m))).toEqual(m);
   });
   test("oversized message throws", () => {
     expect(() => encodePhone({ t: "delta", turnId: "a", block: 0, text: "x".repeat(70000) })).toThrow();
@@ -40,5 +17,16 @@ describe("phone codec", () => {
     expect(() => decodeToPhone('{"t":"nope"}')).toThrow(PhoneProtocolError);
     expect(() => decodeToPhone("{")).toThrow(PhoneProtocolError);
     expect(() => decodeToPhone('{"t":"status","agent":"x","thinking":false,"jobs":0,"audio":true}')).toThrow(PhoneProtocolError);
+  });
+  test("settings fields are all optional, and model and command names are closed sets", () => {
+    expect(decodeFromPhone('{"t":"settings"}')).toEqual({ t: "settings" });
+    expect(() => decodeFromPhone('{"t":"settings","model":"gpt"}')).toThrow(PhoneProtocolError);
+    expect(() => decodeFromPhone('{"t":"command","name":"approve"}')).toThrow(PhoneProtocolError);
+  });
+  test("every bad sample throws", () => {
+    for (const b of BAD_SAMPLES) {
+      const decode = b.dir === "toPhone" ? decodeToPhone : decodeFromPhone;
+      expect(() => decode(b.json)).toThrow(PhoneProtocolError);
+    }
   });
 });

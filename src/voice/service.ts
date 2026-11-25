@@ -40,6 +40,7 @@ export function runVoice(config: Config): Promise<number> {
 
     const conversation = new VoiceConversation({
       stt: worker, tts: worker, speaker: room.speaker, phone: room.phone, agent: link, verbosity: v.verbosity,
+      model: config.agent.model, effort: config.agent.effort,
       approvalTimeoutMs: /^\d+$/.test(process.env.TALKATIVE_APPROVAL_TIMEOUT_MS ?? "") ? Number(process.env.TALKATIVE_APPROVAL_TIMEOUT_MS) : undefined,
     });
     link.onMessage((m) => conversation.onAgent(m));
