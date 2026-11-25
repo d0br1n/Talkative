@@ -1,0 +1,51 @@
+name: ios
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+jobs:
+  build:
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the newest Xcode 26
+        run: |
+          xcode="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          echo "using $xcode"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+      - name: Test TalkativeCore on Darwin
+        run: swift test
+        working-directory: ios/TalkativeCore
+      - run: brew install xcodegen
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ios/build/SourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+      - run: ios/scripts/build-ipa.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Talkative.ipa
+          path: ios/build/Talkative.ipa
+          retention-days: 7
+      - uses: oven-sh/setup-bun@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          bun scripts/sidestore-source.ts --version "$version" --ipa ios/build/Talkative.ipa --out ios/build/source.json
+          gh release create "$GITHUB_REF_NAME" ios/build/Talkative.ipa ios/build/source.json \
+            --title "Talkative $version" --generate-notes

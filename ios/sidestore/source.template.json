@@ -1,0 +1,24 @@
+{
+  "name": "Talkative",
+  "identifier": "io.github.d0br1n.talkative.source",
+  "subtitle": "Talk with your coding agent.",
+  "apps": [
+    {
+      "name": "Talkative",
+      "bundleIdentifier": "io.github.d0br1n.talkative",
+      "developerName": "d0br1n",
+      "subtitle": "Talk with your coding agent.",
+      "localizedDescription": "A voice front end for your agent, over your tailnet.",
+      "iconURL": "https://raw.githubusercontent.com/d0br1n/Talkative/main/ios/Talkative/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+      "versions": [
+        {
+          "version": "0.0.0",
+          "date": "1970-01-01T00:00:00.000Z",
+          "downloadURL": "",
+          "size": 0,
+          "minOSVersion": "17.0"
+        }
+      ]
+    }
+  ]
+}
