@@ -21,11 +21,18 @@ struct AsciiArt: View {
         .accessibilityElement(children: .combine)
     }
 
-    static func load(_ resource: String) -> String {
-        guard let url = Bundle.main.url(forResource: resource, withExtension: "txt"),
-              let text = try? String(contentsOf: url, encoding: .utf8)
-        else { return "" }
-        return text.trimmingCharacters(in: .newlines)
+    /// Each resource is read from the bundle once.
+    @MainActor private static var cache: [String: String] = [:]
+
+    @MainActor static func load(_ resource: String) -> String {
+        if let text = cache[resource] { return text }
+        var text = ""
+        if let url = Bundle.main.url(forResource: resource, withExtension: "txt"),
+           let contents = try? String(contentsOf: url, encoding: .utf8) {
+            text = contents.trimmingCharacters(in: .newlines)
+        }
+        cache[resource] = text
+        return text
     }
 }
 

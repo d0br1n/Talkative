@@ -3,7 +3,8 @@ import Security
 import TalkativeCore
 
 /// The pairing, kept as one generic-password Keychain item. Readable after the first unlock,
-/// so the app can rejoin while the phone is locked.
+/// so the app can rejoin while the phone is locked, and never leaves this device (no backup or
+/// iCloud Keychain sync).
 struct TokenStore {
     static let service = "io.github.d0br1n.talkative"
     static let account = "pairing"
@@ -35,7 +36,7 @@ struct TokenStore {
         let data = try JSONEncoder().encode(credentials)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
         var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if status == errSecItemNotFound {

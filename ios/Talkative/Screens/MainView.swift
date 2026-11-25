@@ -33,7 +33,10 @@ struct MainView: View {
 
             StatusLineView(line: StatusLine.text(model.state))
 
-            MarkView()
+            // Hidden while typing, so `[ stop ]` and `[ type ]` stay above the keyboard on small phones.
+            if !typing {
+                MarkView()
+            }
 
             Text(verbatim: "## transcript")
                 .font(.mono(15, bold: true))

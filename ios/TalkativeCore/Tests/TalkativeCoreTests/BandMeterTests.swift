@@ -40,7 +40,6 @@ final class BandMeterTests: XCTestCase {
         let m = BandMeter(sampleRate: sr)
         let amp = Float(pow(10.0, -12.0 / 20))
         let l = run(m, buffers: 50) { i in amp * Float(sin(2 * Double.pi * 1000 * Double(i) / 48_000)) }
-        print("tone levels:", l.map { String(format: "%.3f", $0) }, "rms", m.rms)
         let top = l.indices.max { l[$0] < l[$1] }!
         // centres are 150 * (4000/150)^(k/13)
         let centres = (0..<14).map { 150 * pow(4000.0 / 150, Double($0) / 13) }
@@ -60,7 +59,6 @@ final class BandMeterTests: XCTestCase {
         // uniform -1...1 has rms 1/sqrt(3); scale to -20 dBFS rms (0.1)
         let k = Float(0.1 * 3.0.squareRoot())
         let l = run(m, buffers: 50) { _ in g.next() * k }
-        print("noise levels:", l.map { String(format: "%.3f", $0) }, "rms", m.rms)
         XCTAssertGreaterThanOrEqual(l.filter { $0 >= 0.3 }.count, 10, "\(l)")
     }
 }

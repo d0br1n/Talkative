@@ -11,7 +11,7 @@ Before you start:
 
 - The voice side and the agent are running (`bun src/main.ts voice`, `bun src/main.ts agent`).
 - Tailscale is up on the phone and on the voice side.
-- In another terminal, run `tail -f ~/.talkative/phone.log`. You need it for check 13.
+- In another terminal, run `tail -f ~/.talkative/phone.log`. You need it for checks 13 and 14.
 
 Run the checks in order. Some depend on the phone being paired.
 
@@ -149,11 +149,24 @@ Do: With `tail -f ~/.talkative/phone.log` running on the voice side, open the ap
 reconnect, and then turn the Wi-Fi off and on (check 5).
 
 Expect: Lines appear in the form `<UTC time> <info|error> <text>`, covering the connection and the
-reconnect. Copy a few of them below.
+reconnect, within a few seconds of each event while the app is connected. Copy a few of them
+below. This repository is public: before pasting, replace device names with a placeholder (for
+example `<Name>'s AirPods` instead of the real name in a route line).
+
+Result:
+
+### 14. Reconnect while locked, without opening the app
+
+Do: Join, lock the phone, and turn its network off (Wi-Fi and cellular, or Airplane Mode) for more
+than a minute. Turn it back on and leave the phone locked.
+
+Expect: The app reconnects without being opened: speaking to it from the lock screen works again,
+and the phone log shows the reconnect. If it only reconnects once you open it, record that.
 
 Result:
 
 ## Failures
 
 For each check that fails, write it up as a follow-up: the check number, what you did, what
-happened, and the matching lines from `~/.talkative/phone.log` if there are any.
+happened, and the matching lines from `~/.talkative/phone.log` if there are any, with device names
+replaced as in check 13.

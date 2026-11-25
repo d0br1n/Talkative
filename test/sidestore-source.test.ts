@@ -17,6 +17,11 @@ test("sidestore source for 0.3.0 and a 1,234-byte ipa", async () => {
     const app = src.apps[0];
     expect(app.bundleIdentifier).toBe("io.github.d0br1n.talkative");
     expect(app.developerName).toBe("d0br1n");
+    // AltStore 2 lists what the app asks for; the reason is the app's own Info.plist string
+    const plist = readFileSync("ios/Talkative/Info.plist", "utf8");
+    const mic = /<key>NSMicrophoneUsageDescription<\/key>\s*<string>([^<]*)<\/string>/.exec(plist)![1];
+    expect(mic).toBe("Talkative listens so you can talk with your agent.");
+    expect(app.appPermissions).toEqual({ entitlements: [], privacy: { NSMicrophoneUsageDescription: mic } });
     const v = app.versions[0];
     expect(v.version).toBe("0.3.0");
     expect(v.size).toBe(1234);

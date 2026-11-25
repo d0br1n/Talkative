@@ -10,6 +10,12 @@
       "subtitle": "Talk with your coding agent.",
       "localizedDescription": "A voice front end for your agent, over your tailnet.",
       "iconURL": "https://raw.githubusercontent.com/d0br1n/Talkative/main/ios/Talkative/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSMicrophoneUsageDescription": "Talkative listens so you can talk with your agent."
+        }
+      },
       "versions": [
         {
           "version": "0.0.0",
