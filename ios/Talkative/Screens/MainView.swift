@@ -8,6 +8,8 @@ struct MainView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.tokens) private var tokens
     @State private var typing = false
+    /// The main screen's height (less the keyboard), for bounding the approval panels.
+    @State private var height: CGFloat = 0
     let openOptions: () -> Void
 
     init(openOptions: @escaping () -> Void) {
@@ -36,14 +38,16 @@ struct MainView: View {
             Text(verbatim: "## transcript")
                 .font(.mono(15, bold: true))
                 .foregroundStyle(Color(p.accent))
+                .phosphorGlow()
 
             TranscriptView(entries: model.state.entries)
                 .equatable()
                 .frame(maxHeight: .infinity)
 
-            ForEach(model.state.approvals, id: \.id) { a in
-                ApprovalPanel(approval: a) { allow in model.decide(id: a.id, allow: allow) }
-                    .equatable()
+            if !model.state.approvals.isEmpty {
+                ApprovalStack(approvals: model.state.approvals, maxHeight: height * 0.45) { id, allow in
+                    model.decide(id: id, allow: allow)
+                }
             }
 
             if typing {
@@ -56,10 +60,57 @@ struct MainView: View {
             }
         }
         .foregroundStyle(Color(p.text))
+        .background(
+            GeometryReader { g in
+                Color.clear
+                    .onAppear { height = g.size.height }
+                    .onChange(of: g.size.height) { _, h in height = h }
+            })
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
         .onChange(of: model.state.newApprovals) { old, new in
             if new > old { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+        }
+    }
+}
+
+/// The pending approvals, the newest at the bottom: as tall as they are, up to `maxHeight`, then
+/// they scroll, so `[ stop ]` and `[ type ]` stay on screen.
+private struct ApprovalStack: View {
+    let approvals: [Approval]
+    let maxHeight: CGFloat
+    let decide: (String, Bool) -> Void
+    @State private var contentHeight: CGFloat = 0
+
+    /// Room for the panels' amber shadow, which the scroll view would otherwise clip.
+    private static let shadowRoom: CGFloat = 12
+
+    var body: some View {
+        let cap = maxHeight > 0 ? maxHeight : .infinity
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(spacing: 12) {
+                    ForEach(approvals, id: \.id) { a in
+                        ApprovalPanel(approval: a) { allow in decide(a.id, allow) }
+                            .equatable()
+                            .id(a.id)
+                    }
+                }
+                .padding(ApprovalStack.shadowRoom)
+                .background(
+                    GeometryReader { g in
+                        Color.clear
+                            .onAppear { contentHeight = g.size.height }
+                            .onChange(of: g.size.height) { _, h in contentHeight = h }
+                    })
+            }
+            .frame(height: min(contentHeight, cap))
+            .defaultScrollAnchor(.bottom)
+            .padding(.horizontal, -ApprovalStack.shadowRoom)
+            .padding(.vertical, -ApprovalStack.shadowRoom / 2)
+            .onChange(of: approvals.last?.id) { _, id in
+                if let id { proxy.scrollTo(id, anchor: .bottom) }
+            }
         }
     }
 }

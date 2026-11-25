@@ -13,7 +13,9 @@ struct MarkView: View {
     var body: some View {
         let s = model.state
         let down = s.connection != .connected || s.agent == .down
-        Group {
+        // A ZStack, not a Group: a Group would hand onAppear/onDisappear to each branch, so every
+        // live/still switch would flip `onScreen`. The ZStack appears and disappears only with the mark.
+        ZStack {
             if scenePhase == .active && !reduceMotion && onScreen {
                 LiveMark(model: model)
             } else {

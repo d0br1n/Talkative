@@ -25,5 +25,8 @@ struct RootView: View {
         .onChange(of: model.credentials == nil) { _, unpaired in
             if unpaired { showingOptions = false }
         }
+        // Outermost, so the options sheet inherits it too: selection, carets and default-tinted
+        // controls use the accent, never system blue.
+        .tint(Color(tokens.palette.accent))
     }
 }

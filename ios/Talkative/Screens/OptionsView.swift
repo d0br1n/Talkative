@@ -28,6 +28,7 @@ struct OptionsView: View {
                     Text(verbatim: "## options")
                         .font(.mono(15, bold: true))
                         .foregroundStyle(Color(p.accent))
+                        .phosphorGlow()
 
                     Group {
                         Choice(label: "verbosity", options: Verbosity.allCases, selection: verbosity)
