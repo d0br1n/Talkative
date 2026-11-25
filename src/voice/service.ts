@@ -1,10 +1,11 @@
 import { join } from "node:path";
 import { AccessToken } from "livekit-server-sdk";
-import { clearCode, writeCode, type Config } from "../config";
+import { clearCode, homeDir, writeCode, type Config } from "../config";
 import { runService } from "../lifecycle";
 import { LinkServer } from "./link-server";
 import { loadOrCreateKeys } from "./livekit";
 import { Pairing } from "./pairing";
+import { PhoneLog } from "./phone-log";
 import { Room } from "./room";
 import { SpeechWorker } from "./speech";
 import { VoiceConversation } from "./conversation";
@@ -40,6 +41,8 @@ export function runVoice(config: Config): Promise<number> {
 
     const conversation = new VoiceConversation({
       stt: worker, tts: worker, speaker: room.speaker, phone: room.phone, agent: link, verbosity: v.verbosity,
+      model: config.agent.model, effort: config.agent.effort,
+      phoneLog: new PhoneLog({ path: join(homeDir(), "phone.log") }),
       approvalTimeoutMs: /^\d+$/.test(process.env.TALKATIVE_APPROVAL_TIMEOUT_MS ?? "") ? Number(process.env.TALKATIVE_APPROVAL_TIMEOUT_MS) : undefined,
     });
     link.onMessage((m) => conversation.onAgent(m));

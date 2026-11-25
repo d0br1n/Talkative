@@ -9,3 +9,7 @@ results/
 node_modules/
 events.jsonl
 events*.jsonl
+
+ios/TalkativeCore/.build/
+ios/build/
+ios/*.xcodeproj/

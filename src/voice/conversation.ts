@@ -1,9 +1,9 @@
 // The voice side's conversation: frames from the room in, turns to the agent
 // out, the agent's streamed replies spoken sentence by sentence, and the phone
 // told everything. Speech and the agent meet only here.
-import type { AgentToVoice, VoiceToAgent, Verbosity } from "../shared/link.js";
+import type { AgentToVoice, Effort, VoiceToAgent, Verbosity } from "../shared/link.js";
 import type { FromPhone, ToPhone } from "../shared/phone.js";
-import { AgentPhase, type Phase } from "./agent-phase.js";
+import { AgentPhase } from "./agent-phase.js";
 import { PendingApprovals } from "./approvals.js";
 import { matchCommand, type Command } from "./commands.js";
 import { DEFAULT_EAR_SETTINGS, Ear, type EarSettings } from "./ear.js";
@@ -39,6 +39,11 @@ export interface VoiceConversationOptions {
   /** Epoch-ms clock for approval deadlines. */
   now?: () => number;
   approvalTimeoutMs?: number;
+  /** The model and effort the agent host starts with. */
+  model: string;
+  effort: Effort;
+  /** Where the phone's `log` messages go; dropped when absent. */
+  phoneLog?: { write(level: "info" | "error", text: string): void };
 }
 
 interface Turn extends Cuttable {
@@ -51,13 +56,18 @@ interface Turn extends Cuttable {
 /** Sent to the phone when a decision cannot reach the agent. */
 export const DECIDE_NOT_SENT = "Not connected to the agent; your answer wasn't sent.";
 
+/** Sent to the phone when a settings change cannot reach the agent. */
+export const SETTINGS_NOT_SENT = "Not connected to the agent; the change wasn't made.";
+
 /** System lines go to the mouth under this turn id. */
 const VOICE_TURN = "voice";
 
 export class VoiceConversation {
   private readonly ear: Ear;
   private readonly mouth: Mouth;
-  private readonly verbosity: Verbosity;
+  private verbosity: Verbosity;
+  private model: string;
+  private effort: Effort;
 
   private readonly turns = new Map<string, Turn>();
   /** owner turns sent and not ended: the status's `thinking` */
@@ -68,6 +78,8 @@ export class VoiceConversation {
   private sentTurns = 0;
   private linkUp = false;
   private everUp = false;
+  /** settings went to the agent: its states until the restart they cause still carry the old values */
+  private settingsInFlight = false;
   private readonly agentPhase = new AgentPhase();
   private audio = true;
   private mic = true;
@@ -81,6 +93,8 @@ export class VoiceConversation {
 
   constructor(private readonly o: VoiceConversationOptions) {
     this.verbosity = o.verbosity ?? "normal";
+    this.model = o.model;
+    this.effort = o.effort;
     this.approvals = new PendingApprovals({
       phone: o.phone, now: o.now ?? Date.now, timeoutMs: o.approvalTimeoutMs ?? APPROVAL_TIMEOUT_MS,
     });
@@ -146,6 +160,30 @@ export class VoiceConversation {
     else this.sendTurn(text);
   }
 
+  private settings(m: Extract<FromPhone, { t: "settings" }>): void {
+    const change: { model?: string; effort?: Effort } = {};
+    if (m.model !== undefined && m.model !== this.model) change.model = m.model;
+    if (m.effort !== undefined && m.effort !== this.effort) change.effort = m.effort;
+    if (change.model !== undefined || change.effort !== undefined) {
+      // the coordinator restarts and resumes its session: that restart is not announced
+      if (!this.linkUp || !this.o.agent.send({ t: "settings", ...change })) {
+        this.o.phone.send({ t: "error", text: SETTINGS_NOT_SENT });
+        this.sendSettings();
+        return;
+      }
+      this.agentPhase.askedRestart();
+      this.settingsInFlight = true;
+      if (change.model !== undefined) this.model = change.model;
+      if (change.effort !== undefined) this.effort = change.effort;
+    }
+    if (m.verbosity !== undefined) this.verbosity = m.verbosity;
+    this.sendSettings();
+  }
+
+  private sendSettings(): void {
+    this.o.phone.send({ t: "settings", verbosity: this.verbosity, model: this.model, effort: this.effort });
+  }
+
   private command(c: Command): void {
     switch (c) {
       case "stop":
@@ -207,6 +245,7 @@ export class VoiceConversation {
       return;
     }
     this.agentPhase.linkDown();
+    this.settingsInFlight = false;
     // the agent cannot finish what was open, and its jobs went with it as far as we can tell
     this.closed.close([...this.turns.keys(), ...this.ownerTurns]);
     this.turns.clear();
@@ -222,7 +261,7 @@ export class VoiceConversation {
       case "hello":
         return;
       case "agent":
-        this.agentState(m.state, m.detail);
+        this.agentState(m);
         return;
       case "turnStart":
         // a stop may have silenced it before its start arrived
@@ -278,12 +317,23 @@ export class VoiceConversation {
     }
   }
 
-  private agentState(state: Phase, detail?: string): void {
+  private agentState(m: Extract<AgentToVoice, { t: "agent" }>): void {
+    const { state, detail } = m;
     if (state !== "ready") this.closed.clear();
     // a restarted coordinator does not end the jobs it dropped
     if (state === "restarting" || state === "crashed") this.jobs.clear();
     // only a fresh agent host says starting: nothing there can answer the old approvals
-    if (state === "starting") this.approvals.dropAll();
+    if (state === "starting") {
+      this.approvals.dropAll();
+      // a fresh host starts with its configured values: bring it to the ones in force, and its
+      // restart for them is not announced
+      const model = m.model ?? this.o.model;
+      const effort = m.effort ?? this.o.effort;
+      if (this.model !== model || this.effort !== effort) {
+        this.agentPhase.askedRestart();
+        if (this.o.agent.send({ t: "settings", model: this.model, effort: this.effort })) this.settingsInFlight = true;
+      }
+    } else this.adopt(m);
     const { line, report } = this.agentPhase.update(state, detail);
     this.status();
     if (report) {
@@ -291,6 +341,28 @@ export class VoiceConversation {
       this.o.phone.send({ t: "error", text: report });
     }
     if (line) this.say(line);
+  }
+
+  /**
+   * The agent host is the source of truth for its model and effort (a voice that restarted
+   * starts from its config): take them and tell the phone when they changed. A state sent before
+   * the restart our own settings asked for still carries the old ones, so those wait for it.
+   */
+  private adopt(m: Extract<AgentToVoice, { t: "agent" }>): void {
+    if (this.settingsInFlight) {
+      if (m.state !== "restarting") return;
+      this.settingsInFlight = false;
+    }
+    let changed = false;
+    if (m.model !== undefined && m.model !== this.model) {
+      this.model = m.model;
+      changed = true;
+    }
+    if (m.effort !== undefined && m.effort !== this.effort) {
+      this.effort = m.effort;
+      changed = true;
+    }
+    if (changed) this.sendSettings();
   }
 
   private approval(m: Extract<AgentToVoice, { t: "approval" }>): void {
@@ -320,9 +392,25 @@ export class VoiceConversation {
         if (text) this.heard(text);
         return;
       }
+      case "settings":
+        this.settings(m);
+        return;
+      case "command":
+        if (m.name === "quiet") this.bargeIn();
+        else this.command(m.name);
+        return;
+      case "log":
+        this.o.phoneLog?.write(m.level, m.text);
+        return;
       case "decide":
+        // a card whose end the phone missed (it timed out, or a fresh agent host dropped it while
+        // the phone was away) would wait forever: end it there, and the agent never knew it
+        if (!this.approvals.has(m.id)) {
+          this.o.phone.send({ t: "approvalDone", id: m.id, allow: false, by: "timeout" });
+          return;
+        }
         // it stays pending either way: the agent still holds the request
-        if (this.approvals.has(m.id) && !this.o.agent.send({ t: "decide", id: m.id, allow: m.allow })) {
+        if (!this.o.agent.send({ t: "decide", id: m.id, allow: m.allow })) {
           this.o.phone.send({ t: "error", text: DECIDE_NOT_SENT });
         }
         return;
@@ -333,6 +421,7 @@ export class VoiceConversation {
   onPhoneJoined(): void {
     this.approvals.resend();
     this.status(true);
+    this.sendSettings();
   }
 
   /** The phone went away: a half-recorded utterance will never end, so drop it and say what waited. */

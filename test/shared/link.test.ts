@@ -8,6 +8,7 @@ const agentToVoice: AgentToVoice[] = [
   { t: "hello", version: LINK_VERSION, secret: "s" },
   { t: "agent", state: "ready" },
   { t: "agent", state: "crashed", detail: "exit 1" },
+  { t: "agent", state: "ready", model: "opus", effort: "high" },
   { t: "turnStart", turnId: "a", origin: "owner" },
   { t: "turnStart", turnId: "a", origin: "agent" },
   { t: "blockStart", turnId: "a", block: 0 },
@@ -53,6 +54,8 @@ describe("link codec", () => {
     expect(() => decodeAgentToVoice('{"t":"agent","state":"bogus"}')).toThrow(LinkError);
     expect(() => decodeAgentToVoice('{"t":"delta","turnId":"a","block":"0","text":"x"}')).toThrow(LinkError);
     expect(() => decodeVoiceToAgent('{"t":"settings","effort":"max"}')).toThrow(LinkError);
+    expect(() => decodeAgentToVoice('{"t":"agent","state":"ready","effort":"max"}')).toThrow(LinkError);
+    expect(() => decodeAgentToVoice('{"t":"agent","state":"ready","model":3}')).toThrow(LinkError);
     expect(() => decodeVoiceToAgent('{"t":"turn","turnId":"a","text":"x","verbosity":"loud"}')).toThrow(LinkError);
   });
 });

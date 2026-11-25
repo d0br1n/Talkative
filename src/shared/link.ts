@@ -7,7 +7,8 @@ export type Effort = "default" | "low" | "medium" | "high";
 
 export type AgentToVoice =
   | { t: "hello"; version: number; secret: string }
-  | { t: "agent"; state: "starting" | "ready" | "restarting" | "crashed"; detail?: string }
+  /** `model` and `effort` are the ones the agent host runs with: the voice adopts them (the agent is the source of truth). */
+  | { t: "agent"; state: "starting" | "ready" | "restarting" | "crashed"; detail?: string; model?: string; effort?: Effort }
   | { t: "turnStart"; turnId: string; origin: "owner" | "agent" }
   | { t: "blockStart"; turnId: string; block: number }
   | { t: "delta"; turnId: string; block: number; text: string }
@@ -40,7 +41,7 @@ const EFFORT = ["default", "low", "medium", "high"] as const;
 
 const AGENT_TO_VOICE: Record<AgentToVoice["t"], FieldSpec> = {
   hello: { version: "number", secret: "string" },
-  agent: { state: ["starting", "ready", "restarting", "crashed"], "detail?": "string" },
+  agent: { state: ["starting", "ready", "restarting", "crashed"], "detail?": "string", "model?": "string", "effort?": EFFORT },
   turnStart: { turnId: "string", origin: ["owner", "agent"] },
   blockStart: { turnId: "string", block: "number" },
   delta: { turnId: "string", block: "number", text: "string" },

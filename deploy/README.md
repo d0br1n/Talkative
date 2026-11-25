@@ -126,3 +126,10 @@ address, and Tailscale carries the phone's UDP even when it relays through DERP.
 The phone posts the three-word code to `http://<bind>:7890/pair` and receives a 30-day room token.
 Five wrong codes in 60 s lock pairing for 60 s. The code changes each time `voice` starts and
 after each successful pair; `bun src/main.ts code` prints the current one.
+
+## Phone log
+
+What the iPhone app reports (its `log` messages) is appended to `~/.talkative/phone.log` (mode 600),
+one line each: `<UTC time> <info|error> <text>`, with newlines and control characters escaped. Lines
+are cut at 2 KB, at most 20 a second are kept (the rest are counted in a `dropped N lines` line), and
+at 5 MB the file moves to `phone.log.1`. Read it with `tail -f ~/.talkative/phone.log`.

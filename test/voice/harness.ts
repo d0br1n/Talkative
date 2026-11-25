@@ -102,6 +102,8 @@ export function rig(o: { connected?: boolean } & Partial<VoiceConversationOption
   const conv = new VoiceConversation({
     stt, tts, speaker, agent, phone,
     now: () => 1_000,
+    model: "sonnet",
+    effort: "default",
     ...o,
     ear: { endOfTurnPauseMs: 300, ...o.ear },
   });

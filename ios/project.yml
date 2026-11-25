@@ -1,0 +1,49 @@
+name: Talkative
+options:
+  bundleIdPrefix: io.github.d0br1n
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  TalkativeCore:
+    path: TalkativeCore
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    exactVersion: 2.20.0
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.3.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Talkative:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Talkative
+        excludes:
+          - Info.plist
+          - Talkative.entitlements
+    dependencies:
+      - package: TalkativeCore
+        product: TalkativeCore
+      - package: LiveKit
+        product: LiveKit
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.d0br1n.talkative
+        PRODUCT_NAME: Talkative
+        INFOPLIST_FILE: Talkative/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Talkative/Talkative.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+      configs:
+        Release:
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""

@@ -24,8 +24,16 @@ agent on a laptop. In short, on one machine:
 
 [test/e2e/README.md](test/e2e/README.md) runs the whole system end to end, with a fake Claude.
 
+## iPhone app
+
+The app is built unsigned in CI and installed with SideStore on a free Apple ID.
+
+- [docs/ios/install.md](docs/ios/install.md): installing it and pairing with the voice side.
+- [docs/ios/device-checklist.md](docs/ios/device-checklist.md): what to check on a real iPhone.
+
 ## Development
 
 - `bun install` installs the TypeScript dependencies (voice side and agent side).
 - `bun test` runs the TypeScript tests.
+- `scripts/swift-test` runs the Swift core package tests on Linux in Docker (no Mac needed).
 - `uv sync` installs the Python benchmark environment; `uv run pytest -q` runs its tests.
