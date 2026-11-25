@@ -30,11 +30,11 @@ test("a line is written as time, level, text; the file is mode 600", () => {
 
 test("1 MB of text is one line of at most 2048 bytes, ending with an ellipsis, valid UTF-8", () => {
   const log = new PhoneLog({ path });
-  log.write("info", "é".repeat(500_000));
+  log.write("info", "€".repeat(400_000));
   const bytes = readFileSync(path);
   expect(bytes.length).toBeLessThanOrEqual(2048);
   const s = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  expect(s.endsWith("…\n")).toBe(true);
+  expect(s.endsWith("€…\n")).toBe(true); // the 2044-byte cut falls 1 byte into a 3-byte character
   expect(s.split("\n").length).toBe(2);
 });
 
